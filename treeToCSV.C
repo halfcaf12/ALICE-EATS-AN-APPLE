@@ -4,6 +4,8 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <map>
+#include <sstream>
 #include "TFile.h"
 #include "TTree.h"
 #include "TList.h"
@@ -16,19 +18,18 @@
 using namespace std;
 
 //58 is enough to store full pathname
-const char* OPEN_PATH = "/Users/benkroul/Documents/CS/final_229/roots/";
-const char* SAVE_PATH = "/Users/benkroul/Documents/CS/final_229/csvs/";
+const char* DIRNAME = "/Users/benkroul/Documents/CS/final_229/";
 const char* fileNames[11] = {"AliVSD_MasterClass_1","AliVSD_Masterclass_1","AliVSD_Masterclass_2","AliVSD_Masterclass_3","AliVSD_Masterclass_4","AliVSD_Masterclass_5","AliVSD_Masterclass_6","AliVSD_Masterclass_7","AliVSD_Masterclass_8","AliVSD_Masterclass_9","AliVSD_Masterclass_10"};
 
 // store tree into new filename
 void storeTree(const char* tree_name, TDirectoryFile* f, const int masterclass_index) {
    const char* fname = f->GetName();
-   int len = strlen(SAVE_PATH)+strlen(fname)+strlen(tree_name)+9+1;
+   int len = strlen(DIRNAME)+strlen(fname)+17+2*strlen(tree_name);
    if (masterclass_index > 9) {
       len++;
    }
    char newfname[len];
-   snprintf(newfname, len, "%s_%s_%s_%s.root",SAVE_PATH,sindex,fname,tree_name);
+   snprintf(newfname, len, "%sroots/%s/%d_%s_%s.root",DIRNAME,tree_name,masterclass_index,fname,tree_name);
 
    TTree* oldtree = f->Get<TTree>(tree_name);
    oldtree->SetBranchStatus("*", 1);
@@ -38,52 +39,113 @@ void storeTree(const char* tree_name, TDirectoryFile* f, const int masterclass_i
    newfile.Write();
 }
 
+typedef struct readerWithType {
+      const char* type;
+      void* reader;
+} readerWithType;
+
+readerWithType* makeTreeReaderFromType(const char* type, const char* name, TTreeReader reader) {
+   // initialize a TTreeReaderValue() of the correct type
+   void* ret = nullptr;
+   if (!strcmp(type, "Int_t")) {
+      TTreeReaderValue<Int_t>      ret(reader, name);
+   } else if (!strcmp(type, "Float_t")) {
+      TTreeReaderValue<Float_t>    ret(reader, name);
+   } else if (!strcmp(type, "Double32_t")) {
+      TTreeReaderValue<Double32_t> ret(reader, name);
+   } else if (!strcmp(type, "UShort_t")) {
+      TTreeReaderValue<UShort_t>   ret(reader, name);
+   } else {
+      printf("new type found in %s: %s",name,type);
+   }
+   readerWithType* newThing;
+   newThing->type = type;
+   newThing->reader = (void *)ret;
+   return newThing;
+}
+
+void addReaderValueToFile(ofstream* fileptr, const readerWithType* thing) {
+   const char* type = thing->type;
+   char* str = NULL;
+   if (!strcmp(type, "Int_t")) {
+      //TTreeReaderValue<Int_t>* reader = (TTreeReaderValue<Int_t>*)thing->reader;
+      int val = *(int *)thing->reader;
+      int len = snprintf(NULL,0,"%d",val)+1;
+      char str[len];
+      snprintf(str,len,"%d",val);
+   } else if (!strcmp(type, "Float_t")) {
+      //TTreeReaderValue<Float_t>* reader = (TTreeReaderValue<Float_t>*)thing->reader;
+      float val = *(float *)thing->reader;
+      int len = snprintf(NULL,0,"%f",val)+1;
+      char str[len];
+      snprintf(str,len,"%f",val);
+   } else if (!strcmp(type, "Double32_t")) {
+      //TTreeReaderValue<Double_t>* reader = (TTreeReaderValue<Double_t>*)thing->reader;
+      double val = *(double *)thing->reader;
+      int len = snprintf(NULL,0,"%lf",val)+1;
+      char str[len];
+      snprintf(str,len,"%lf",val);
+   } else if (!strcmp(type, "UShort_t")) {
+      //TTreeReaderValue<UShort_t>* reader = (TTreeReaderValue<UShort_t>*)thing->reader;
+      unsigned short int val = *(unsigned short int *)thing->reader;
+      int len = snprintf(NULL,0,"%hu",val)+1;
+      char str[len];
+      snprintf(str,len,"%hu",val);
+   }
+   *fileptr << str;
+}
+
 // read tree and store in .txt file "csv"
 void storeCSV(const char* tree_name, TDirectoryFile* f, const int masterclass_index) {
    const char* fname = f->GetName();
-   int len = strlen(SAVE_PATH)+strlen(fname)+strlen(tree_name)+8+1;
+   int len = strlen(DIRNAME)+strlen(fname)+15+2*strlen(tree_name);
    if (masterclass_index > 9) {
       len++;
    }
    char newfname[len];
-   snprintf(newfname, len, "%s_%s_%s_%s.txt",SAVE_PATH,sindex,fname,tree_name);
+   snprintf(newfname, len, "%scsvs/%s/%d_%s_%s.csv",DIRNAME,tree_name,masterclass_index,fname,tree_name);
    
-   fstream myfile; // make output file
+   ofstream myfile; // make output file
    myfile.open(newfname);
-
-   TTree *tree = (TTree*)f->Get(tree_name);
-   tree->Print(); // print tree branches to screen
-   //tree->Scan(); pritn all entries to screen
+   printf("%d_%s_%s.csv\n",masterclass_index,fname,tree_name);
+   TTree *tree = f->Get<TTree>(tree_name);
    
    // implement TTreeReader class
    TTreeReader reader(tree);
-   TTreeReaderValue<UShort_t> fId0s(reader, "fDetId");
-   TTreeReaderValue<UShort_t> fId1s(reader, "fSubdetId");
-   TTreeReaderValue<Int_t>    fId2s(reader, "fLabel[3]");
-   TTreeReaderValue<Float_t>  fXs(reader, "fV.fX");
-   TTreeReaderValue<Float_t>  fYs(reader, "fV.fY");
-   TTreeReaderValue<Float_t>  fZs(reader, "fV.fZ");
    
-   myfile << "fDetId;fSubdetId;fLabel[3];fV.fX;fV.fY;fV.fZ\n";
+   // dynamic TTreeReaderValue s, basically for columns
+   vector<readerWithType*> column_readers;
+
+   TObjArray* leavesList = tree->GetListOfLeaves();
+   for (TObject* obj: *leavesList) {
+      TLeaf* leaf = (TLeaf *)obj;
+      const char* name = leaf->GetName();
+      const char* type = leaf->GetTypeName();
+      readerWithType* thing = makeTreeReaderFromType(type, name, reader);
+      column_readers.push_back(thing);
+      myfile << name;
+   }
+   myfile << "\n";
+   if (!myfile.is_open()) { 
+      printf("we not guuci :(\n");
+   }
+
    bool firstEntry = true;
+   int i = 0;
    while (reader.Next()) {
-      // convert from the wierd Int_t types to regular C types
-      unsigned short int fId0 = (unsigned short int)(*fId0s);
-      unsigned short int fId1 = (unsigned short int)(*fId1s);
-      int fId2 = (int)(*fId2s);
-      float fX = (float)(*fXs);
-      float fY = (float)(*fYs);
-      float fZ = (float)(*fZs);
-      int length = snprintf(NULL,0,"%hu;%hu;%d;%f;%f:%f",fId0,fId1,fId2,fX,fY,fZ);
-      char* str = (char *)malloc( length + 5 );
-      snprintf(str,length + 1,"%hu;%hu;%d;%f;%f:%f",fId0,fId1,fId2,fX,fY,fZ);
-      strcat(str, "\n\0");
-      myfile << str;
+      for (int i = 0; i < column_readers.size(); i++) {
+         readerWithType* col_reader = column_readers[i];
+         if (col_reader->reader) {
+            addReaderValueToFile(&myfile, col_reader);
+         }
+      }
+      myfile << "\n";
+      i++;
    }
    if (reader.GetEntryStatus() != TTreeReader::kEntryBeyondEnd) {
       printf("reader did not read all entries successfully");
    }
-
+   printf("processed %d entries\n",i);
    myfile.close();
 }
 
@@ -91,10 +153,9 @@ void treeToCSV() {
    // make pathname from indexed root file
    int index = 1;
    const char* fname = fileNames[index];
-   char pathname[strlen(OPEN_PATH)+30];
-   strcpy(pathname, OPEN_PATH);
-   strcat(pathname, fname);
-   strcat(pathname,".root");
+   int len = strlen(DIRNAME)+40;
+   char pathname[len];
+   snprintf(pathname, len, "%sroots/%s.root", DIRNAME, fname);
    printf("%s\n", pathname);
    // open path and get list of events (34 for index 1)
    TFile *fd = TFile::Open(pathname);
@@ -105,10 +166,9 @@ void treeToCSV() {
       TDirectoryFile* f = (TDirectoryFile *)events->At(i);
       const char* fname = f->GetName();
       TDirectoryFile* event = (TDirectoryFile*)fd->Get(fname);
-      const char* tree_name = "Clusters";
-      storeTree(tree_name, event, index);
+      //storeTree("Clusters", event, index);
       //storeTree("RecTracks", event, index);
-      //storeCSV("Clusters", event, index);
+      storeCSV("Clusters", event, index);
       //storeCSV("RecTracks", event, index);
    }
 }

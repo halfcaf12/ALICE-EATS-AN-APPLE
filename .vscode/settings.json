@@ -1,6 +1,24 @@
 {
     "files.associations": {
         "treeToCSV.C": "cpp",
-        "ios": "cpp"
+        "ios": "cpp",
+        "sstream": "cpp",
+        "iosfwd": "cpp",
+        "fstream": "cpp",
+        "__hash_table": "cpp",
+        "__tree": "cpp",
+        "array": "cpp",
+        "charconv": "cpp",
+        "type_traits": "cpp",
+        "limits": "cpp",
+        "ratio": "cpp",
+        "tuple": "cpp",
+        "variant": "cpp",
+        "map": "cpp",
+        "__split_buffer": "cpp",
+        "string": "cpp",
+        "vector": "cpp",
+        "typeinfo": "cpp",
+        "locale": "cpp"
     }
 }
