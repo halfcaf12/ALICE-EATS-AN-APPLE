@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -20,42 +21,23 @@ const char* SAVE_PATH = "/Users/benkroul/Documents/CS/final_229/csvs/";
 const char* fileNames[11] = {"AliVSD_MasterClass_1","AliVSD_Masterclass_1","AliVSD_Masterclass_2","AliVSD_Masterclass_3","AliVSD_Masterclass_4","AliVSD_Masterclass_5","AliVSD_Masterclass_6","AliVSD_Masterclass_7","AliVSD_Masterclass_8","AliVSD_Masterclass_9","AliVSD_Masterclass_10"};
 
 // store tree into new filename
-void storeTree(const char* tree_name, TDirectoryFile* f) {
+void storeTree(const char* tree_name, TDirectoryFile* f, const int masterclass_index) {
    const char* fname = f->GetName();
    printf("name found %s\n",fname);
-   int len = strlen(SAVE_PATH)+strlen(fname)+strlen(tree_name)+6;
+   char* sindex = itoa(masterclass_index);
+   int len = strlen(SAVE_PATH)+strlen(fname)+strlen(tree_name)+7+strlen(sindex);
    char newfname[len];
    strcpy(newfname, SAVE_PATH);
+   strcat(newfname, sindex); // add index of masterclass type
+   strcat(newfname, "_");
    strcat(newfname, fname);
    strcat(newfname, tree_name);
    strcat(newfname, ".root\0");
 
-   // retrieve tree and clone it
-   printf("retrieving tree %s...\n",tree_name);
    TTree* oldtree = f->Get<TTree>(tree_name);
-   //oldtree = (TTree *)oldtree;
-   //TTree * oldtree = (TTree *)obj;
-   printf("found tree %s...\n",tree_name);
-   printf("pointer to tree %p\n",oldtree);
-   oldtree->Print();
-   printf("pointer to tree dereferenced %p\n",&oldtree);
-   int numentries = oldtree->GetEntries();
-
-   printf("tree has %d entries\n", numentries);
-   TObjArray* branchesList = oldtree->GetListOfBranches();
-   printf("accessed list of branches\n");
-   for (TObject * obj: *branchesList) {
-      const char* name = obj->GetName();
-      printf("name is %s\n",name);
-   }
    oldtree->SetBranchStatus("*", 1);
-   printf("set branch status...\n");
    TFile newfile(newfname, "recreate");
-   printf("now created %s\n",newfname);
-   printf("made file %s...\n",newfname);
-   
    auto newtree = oldtree->CloneTree();
-   printf("cloned tree...\n");
    newtree->Print();
    newfile.Write();
 }
@@ -63,12 +45,15 @@ void storeTree(const char* tree_name, TDirectoryFile* f) {
 // read tree and store in .txt file "csv"
 void storeCSV(const char* tree_name, TDirectoryFile* f) {
    const char* fname = f->GetName();
-   int len = strlen(SAVE_PATH)+strlen(fname)+strlen(tree_name)+5;
+   char* sindex = itoa(masterclass_index);
+   int len = strlen(SAVE_PATH)+strlen(fname)+strlen(tree_name)+6+strlen(sindex);
    char newfname[len];
    strcpy(newfname, SAVE_PATH);
+   strcat(newfname, sindex); // add index of masterclass type
+   strcat(newfname, "_");
    strcat(newfname, fname);
    strcat(newfname, tree_name);
-   strcat(newfname, ".txt\0");
+   strcat(newfname, ".root\0");
    
    fstream myfile; // make output file
    myfile.open(newfname);
@@ -121,20 +106,17 @@ void treeToCSV() {
    // open path and get list of events (34 for index 1)
    TFile *fd = TFile::Open(pathname);
    TList *events= fd->GetListOfKeys();
-
    //TDirectoryFile *f = fd->GetEntry(fname);
    printf("found %d entries\n", events->GetEntries());
    for(int i=0; i<events->GetEntries(); i++) {
-      if (i == 0) {
-         printf("at entry %d\n",i);
-         TObject* obj = events->At(i);
-         TDirectoryFile* f = (TDirectoryFile *)obj;
-         const char* tree_name = "Clusters";
-         storeTree(tree_name, f);
-         storeTree("RecTracks", f);
-         storeCSV("Clusters", f);
-         storeCSV("RecTracks", f);
-      }
+      TDirectoryFile* f = (TDirectoryFile *)events->At(i);
+      const char* fname = f->GetName();
+      TDirectoryFile* event = (TDirectoryFile*)fd->Get(fname);
+      const char* tree_name = "Clusters";
+      storeTree(tree_name, event, index);
+      //storeTree("RecTracks", event, index);
+      //storeCSV("Clusters", event, index);
+      //storeCSV("RecTracks", event, index);
    }
 }
 
