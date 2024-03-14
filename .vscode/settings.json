@@ -19,6 +19,10 @@
         "string": "cpp",
         "vector": "cpp",
         "typeinfo": "cpp",
-        "locale": "cpp"
+        "locale": "cpp",
+        "bitset": "cpp",
+        "initializer_list": "cpp",
+        "string_view": "cpp",
+        "unordered_map": "cpp"
     }
 }
