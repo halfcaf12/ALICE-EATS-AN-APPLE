@@ -23,8 +23,10 @@ const char* fileNames[11] = {"AliVSD_MasterClass_1","AliVSD_Masterclass_1","AliV
 // store tree into new filename
 void storeTree(const char* tree_name, TDirectoryFile* f, const int masterclass_index) {
    const char* fname = f->GetName();
-   char* sindex = itoa(masterclass_index);
-   int len = strlen(SAVE_PATH)+strlen(fname)+strlen(tree_name)+9+strlen(sindex);
+   int len = strlen(SAVE_PATH)+strlen(fname)+strlen(tree_name)+9+1;
+   if (masterclass_index > 9) {
+      len++;
+   }
    char newfname[len];
    snprintf(newfname, len, "%s_%s_%s_%s.root",SAVE_PATH,sindex,fname,tree_name);
 
@@ -39,8 +41,10 @@ void storeTree(const char* tree_name, TDirectoryFile* f, const int masterclass_i
 // read tree and store in .txt file "csv"
 void storeCSV(const char* tree_name, TDirectoryFile* f, const int masterclass_index) {
    const char* fname = f->GetName();
-   char* sindex = itoa(masterclass_index);
-   int len = strlen(SAVE_PATH)+strlen(fname)+strlen(tree_name)+8+strlen(sindex);
+   int len = strlen(SAVE_PATH)+strlen(fname)+strlen(tree_name)+8+1;
+   if (masterclass_index > 9) {
+      len++;
+   }
    char newfname[len];
    snprintf(newfname, len, "%s_%s_%s_%s.txt",SAVE_PATH,sindex,fname,tree_name);
    
