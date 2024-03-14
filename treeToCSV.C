@@ -32,7 +32,7 @@ void storeTree(const char* tree_name, TDirectoryFile* f) {
 
    // retrieve tree and clone it
    printf("retrieving tree %s...\n",tree_name);
-   TTree* oldtree = (TTree *)f->Get(tree_name);
+   TTree* oldtree = f->Get<TTree>(tree_name);
    //oldtree = (TTree *)oldtree;
    //TTree * oldtree = (TTree *)obj;
    printf("found tree %s...\n",tree_name);
@@ -40,9 +40,7 @@ void storeTree(const char* tree_name, TDirectoryFile* f) {
    oldtree->Print();
    printf("pointer to tree dereferenced %p\n",&oldtree);
    int numentries = oldtree->GetEntries();
-   //TTree *oldtree = (TTree *)obj;
-   //oldtree->Print();
-   // activate all branches
+
    printf("tree has %d entries\n", numentries);
    TObjArray* branchesList = oldtree->GetListOfBranches();
    printf("accessed list of branches\n");
@@ -126,7 +124,7 @@ void treeToCSV() {
 
    //TDirectoryFile *f = fd->GetEntry(fname);
    printf("found %d entries\n", events->GetEntries());
-   for(int i=0; i<lst->GetEntries(); i++) {
+   for(int i=0; i<events->GetEntries(); i++) {
       if (i == 0) {
          printf("at entry %d\n",i);
          TObject* obj = events->At(i);

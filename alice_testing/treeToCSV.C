@@ -32,28 +32,9 @@ void storeTree(const char* tree_name, TDirectoryFile* f) {
    // retrieve tree and clone it
    printf("retrieving tree %s...\n",tree_name);
    TTree* oldtree = f->Get<TTree>(tree_name);
-   //oldtree = (TTree *)oldtree;
-   //TTree * oldtree = (TTree *)obj;
-   printf("found tree %s...\n",tree_name);
-   printf("pointer to tree %p\n",oldtree);
-   oldtree->Print();
-   printf("pointer to tree dereferenced %p\n",&oldtree);
-   int numentries = oldtree->GetEntries();
-   //TTree *oldtree = (TTree *)obj;
-   //oldtree->Print();
-   // activate all branches
-   printf("tree has %d entries\n", numentries);
-   TObjArray* branchesList = oldtree->GetListOfBranches();
-   printf("accessed list of branches\n");
-   for (TObject * obj: *branchesList) {
-      const char* name = obj->GetName();
-      printf("name is %s\n",name);
-   }
    oldtree->SetBranchStatus("*", 1);
-   printf("set branch status...\n");
    TFile newfile(newfname, "recreate");
    printf("made file %s...\n",newfname);
-   
    auto newtree = oldtree->CloneTree();
    printf("cloned tree...\n");
    newtree->Print();
@@ -73,7 +54,7 @@ void storeCSV(const char* tree_name, TDirectoryFile* f) {
    fstream myfile; // make output file
    myfile.open(newfname);
 
-   TTree *tree = (TTree*)f->Get(tree_name);
+   TTree *tree = f->Get<TTree>(tree_name);
    tree->Print(); // print tree branches to screen
    //tree->Scan(); pritn all entries to screen
    
