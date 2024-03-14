@@ -23,16 +23,10 @@ const char* fileNames[11] = {"AliVSD_MasterClass_1","AliVSD_Masterclass_1","AliV
 // store tree into new filename
 void storeTree(const char* tree_name, TDirectoryFile* f, const int masterclass_index) {
    const char* fname = f->GetName();
-   printf("name found %s\n",fname);
    char* sindex = itoa(masterclass_index);
-   int len = strlen(SAVE_PATH)+strlen(fname)+strlen(tree_name)+7+strlen(sindex);
+   int len = strlen(SAVE_PATH)+strlen(fname)+strlen(tree_name)+9+strlen(sindex);
    char newfname[len];
-   strcpy(newfname, SAVE_PATH);
-   strcat(newfname, sindex); // add index of masterclass type
-   strcat(newfname, "_");
-   strcat(newfname, fname);
-   strcat(newfname, tree_name);
-   strcat(newfname, ".root\0");
+   snprintf(newfname, len, "%s_%s_%s_%s.root",SAVE_PATH,sindex,fname,tree_name);
 
    TTree* oldtree = f->Get<TTree>(tree_name);
    oldtree->SetBranchStatus("*", 1);
@@ -43,17 +37,12 @@ void storeTree(const char* tree_name, TDirectoryFile* f, const int masterclass_i
 }
 
 // read tree and store in .txt file "csv"
-void storeCSV(const char* tree_name, TDirectoryFile* f) {
+void storeCSV(const char* tree_name, TDirectoryFile* f, const int masterclass_index) {
    const char* fname = f->GetName();
    char* sindex = itoa(masterclass_index);
-   int len = strlen(SAVE_PATH)+strlen(fname)+strlen(tree_name)+6+strlen(sindex);
+   int len = strlen(SAVE_PATH)+strlen(fname)+strlen(tree_name)+8+strlen(sindex);
    char newfname[len];
-   strcpy(newfname, SAVE_PATH);
-   strcat(newfname, sindex); // add index of masterclass type
-   strcat(newfname, "_");
-   strcat(newfname, fname);
-   strcat(newfname, tree_name);
-   strcat(newfname, ".root\0");
+   snprintf(newfname, len, "%s_%s_%s_%s.txt",SAVE_PATH,sindex,fname,tree_name);
    
    fstream myfile; // make output file
    myfile.open(newfname);
