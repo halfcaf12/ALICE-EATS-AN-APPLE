@@ -1,11 +1,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <dirent.h>
 #include <iostream>
 #include <fstream>
 #include <vector>
 #include <map>
-#include <sstream>
 #include "TFile.h"
 #include "TTree.h"
 #include "TList.h"
@@ -17,10 +17,46 @@
 #include "TString.h"
 using namespace std;
 
-/* I have changed this to work off of the github as is, using 
-   dir/roots/ to get the root files */
+/* 
+I have changed this to work off of the github as is, using 
+dir/roots/ to get the root files 
+storeCSV assumes existence of csvs/Clusters and csvs/RecTracks 
+storeTree assumes existence of roots/Clusters and roots/RecTracks
+*/
 const char* DIRNAME = "/Users/benkroul/Documents/CS/final_229/";
-const char* fileNames[11] = {"AliVSD_MasterClass_1","AliVSD_Masterclass_1","AliVSD_Masterclass_2","AliVSD_Masterclass_3","AliVSD_Masterclass_4","AliVSD_Masterclass_5","AliVSD_Masterclass_6","AliVSD_Masterclass_7","AliVSD_Masterclass_8","AliVSD_Masterclass_9","AliVSD_Masterclass_10"};
+
+/* return all filepaths in directory. POINTER MUST BE FREED AFTERWARDS */
+char** filenamesFromDir(const char* dir_path, const char* ending) {
+   DIR *dir;
+   struct dirent *entry;
+   if ((dir = opendir(dir_path)) == NULL) { // couldn't open dir
+      printf("Could not open %s",dir_path);
+      return NULL;
+   }
+   // make char array pointer to all filepaths
+   int storage = 5; int used = 0;
+   char** filenames = (char **)calloc(sizeof(char *), storage);
+   while ((entry = readdir(dir)) != NULL) {
+      if (entry->d_name[0] == '.') continue; // no hidden files
+      if (entry->d_type == DT_DIR) continue; // no directories
+      // filter for files with an ending
+      if (ending && !strstr(entry->d_name, ending)) continue; 
+      if (used + 1 == storage) { // add 5 every time I guess
+         storage += 5;
+         filenames = (char **)realloc(filenames, storage * sizeof(char *));
+      }
+      filenames[used] = (char *)malloc(strlen(entry->d_name) + 1);
+      strcpy(filenames[used], entry->d_name);
+      used++;
+   }
+   filenames[used] = NULL;
+   if (filenames[0] == NULL) {
+      printf("directory %s is empty", dir_path);
+      return NULL;
+   }
+   closedir(dir);
+   return filenames;
+}
 
 // store tree into new filename
 void storeTree(const char* tree_name, TDirectoryFile* f, const int masterclass_index) {
@@ -294,29 +330,38 @@ const char* fname = f->GetName();
    myfile.close();
 }
 
+// ROOT calls the function that's named the same as the C file.
 void treeToCSV() {
-   // make pathname from indexed root file
-   for (int index=2; index < 11; index ++) {
-      const char* fname = fileNames[index];
-      int len = strlen(DIRNAME)+40;
+   // serach for filenames in DIRNAME that end with .root
+   const char* ending = ".root";
+   int len = strlen(DIRNAME)+6;
+   char rootpath[len];
+   snprintf(rootpath, len, "%sroots",DIRNAME);
+   char** filenames = filenamesFromDir(rootpath, ending);
+   int i = 0;
+   // for all filenames found with .root ending
+   while (char *filename = filenames[i]) {
+      int len = strlen(rootpath)+strlen(filename)+2;
       char pathname[len];
-      snprintf(pathname, len, "%sroots/%s.root", DIRNAME, fname);
-      printf("%s\n", pathname);
+      snprintf(pathname, len, "%s/%s", rootpath, filename);
       // open path and get list of events (34 for index 1)
       TFile *fd = TFile::Open(pathname);
       TList *events= fd->GetListOfKeys();
-      //TDirectoryFile *f = fd->GetEntry(fname);
-      printf("found %d entries\n", events->GetEntries());
+      printf("found %d entries in %s\n", events->GetEntries(),filename);
       for(int i=0; i<events->GetEntries(); i++) {
          TDirectoryFile* f = (TDirectoryFile *)events->At(i);
          const char* fname = f->GetName();
          TDirectoryFile* event = (TDirectoryFile*)fd->Get(fname);
          //storeTree("Clusters", event, index);
          //storeTree("RecTracks", event, index);
-         storeClustersCSV("Clusters", event, index);
-         storeTracksCSV("RecTracks", event, index);
+         //storeClustersCSV("Clusters", event, index);
+         //storeTracksCSV("RecTracks", event, index);
       }
+      free(filename);
+      i++;
    }
+   free(filenames);
+   return;
 }
 
 // manually iterate through tree. might be the move for general csv 
