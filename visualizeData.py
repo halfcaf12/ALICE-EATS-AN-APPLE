@@ -260,14 +260,12 @@ def main(config):
     evsizes = [tracks[tracks["event"] == event].size for event in events]
     print(np.mean(evsizes), np.std(evsizes), np.min(evsizes), np.max(evsizes))
 
-
     clusters = loadFromNPZ("../clusters")
     print(f"loaded {clusters.size} clusters with fields {clusters.dtype.names}")
     events = np.unique(clusters["event"])
     evsizes2 = [clusters[clusters["event"] == event].size for event in events]
     print(np.mean(evsizes2), np.std(evsizes2), np.min(evsizes2), np.max(evsizes2))
-
-
+    
     event_idxs = config.evs1.extend(config.evs2)
     if not event_idxs:
         event_idxs = []
