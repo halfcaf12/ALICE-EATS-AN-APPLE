@@ -30,7 +30,6 @@ def train_valid_test(arr: np.ndarray, test_percentage, valid_percentage=0.0, ran
     print(train_n,train.size)
     return train, valid, test
 
-
 random_state = 19
 np.random.seed(random_state)
 clusters = loadFromNPZ("../clusters")
@@ -38,9 +37,11 @@ events = np.unique(clusters["event"])
 # maybe later filter by events??
 eventidx = 0
 points = clusters[clusters["event"] == events[eventidx]]
+
 # care about x-y points
-XY = np.concatenate((points["fV.fX"],points["fV.fY"]),axis=1)
-train, valid, test = train_valid_test(events, 0.125, 0.125, random_state)
+# want to model 
+XY = np.stack((points["fV.fX"],points["fV.fY"]),axis=-1)
+train, valid, test = train_valid_test(XY, 0.125, 0.125, random_state)
 
 
 
