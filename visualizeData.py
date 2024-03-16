@@ -78,15 +78,13 @@ def graph_3d(min_X, model, coeffs, x_res=10, amps_arnd_center=1.5, x_dim=3):
 
         # plot the model
         scatter = go.Scatter3d(
-            x=X, y=Y, z=Z,
-            mode='markers',
+            x=xx, y=yy, z=YY, mode='markers', name='model',
             marker=dict(
                 size=6,
                 color=-YY,                # set color to an array/list of desired values
                 colorscale='Viridis',   # choose a colorscale
                 opacity=0.5
-            ),
-            name='model'
+            )
         )
         surface = go.Surface(x=xx, y=yy, z=YY, opacity=0.8,
                              contours = {"x": {"show": True, "start": 1.5, "end": 2, "size": 0.04, "color":"white"},
@@ -95,48 +93,26 @@ def graph_3d(min_X, model, coeffs, x_res=10, amps_arnd_center=1.5, x_dim=3):
                                         }
                             )
         x_lbl = lbllst[(i+1)%3]; y_lbl = lbllst[(i+2)%3]
-        layout = go.Layout(
-            title=f"Transition Frequency vs. Induced Current in {x_lbl[0]}-{y_lbl[0]}",
+        layout = go.Layout(title=f"Transition Frequency vs. Induced Current in {x_lbl[0]}-{y_lbl[0]}",
             margin=dict(l=0, r=0, b=20, t=50), # tight layout
             width=500, height=500,
             #contours_z=dict(show=True, usecolormap=True, highlightcolor="limegreen", project_z=True),
             scene=dict(
-                xaxis=dict(
-                    showbackground=False,
-                    title=x_lbl,
-                    showspikes=False
-                ),
-                yaxis=dict(
-                    showbackground=False,
-                    title=y_lbl,
-                    showspikes=False
-                ),
-                zaxis=dict(
-                    showbackground=True,
-                    title='Frequency (MHz)',
-                    gridcolor='rgb(255, 255, 255)',
-                    zerolinecolor='rgb(255, 255, 255)',
-                    backgroundcolor='rgb(230, 230,230)'
-                )
-            )
-        )
+                xaxis=dict(showbackground=False, title=x_lbl, showspikes=False),
+                yaxis=dict(showbackground=False, title=y_lbl,showspikes=False ),
+                zaxis=dict(showbackground=True,title='Frequency (MHz)',gridcolor='rgb(255, 255, 255)',zerolinecolor='rgb(255, 255, 255)',backgroundcolor='rgb(230, 230,230)' )
+            ))
         data = [scatter]
         fig = go.Figure(data=data, layout=layout)
         fig.show()
 
-# graph fV.fY,....
-def graph_clusters(clusters, event_idxs):
-    events = np.unique(clusters["event"])
-    numevents = len(events)
-    print(f"there are {numevents} events in clusters")
-    axislabels = ["fV.fX","fV.fY","fV.fZ"]
-    event_colors = ['#' + c for c in hexcolors]
-    layout = go.Layout(
+defaultLayout = lambda axislabels: go.Layout(
         title=f"Clusters",
         margin=dict(l=10, r=10, b=50, t=50), # tight layout
         width=900, height=900,
         #contours_z=dict(show=True, usecolormap=True, highlightcolor="limegreen", project_z=True),
         scene=dict(
+            camera = dict(projection=dict(type = "orthographic")),
             xaxis=dict(
                 showbackground=False,
                 title=axislabels[0],
@@ -156,6 +132,15 @@ def graph_clusters(clusters, event_idxs):
             )
         )
     )
+
+# graph fV.fY,....
+def graph_clusters(clusters, event_idxs, field_idx=2):
+    events = np.unique(clusters["event"])
+    numevents = len(events)
+    print(f"there are {numevents} events in clusters")
+    axislabels = ["fV.fX","fV.fY","fV.fZ"]
+    event_colors = ['#' + c for c in hexcolors]
+    layout = defaultLayout(axislabels)
     fig = go.Figure(layout=layout)
     
     if not len(event_idxs):
@@ -167,10 +152,10 @@ def graph_clusters(clusters, event_idxs):
         event = events[idx]
         points = clusters[clusters["event"] == event]
         X = points["fV.fX"]; Y = points["fV.fY"]; Z = points["fV.fZ"]
-        colors = [event_colors[x % len(event_colors)] for x in points['fDetId']]
+        colors = [event_colors[x % len(event_colors)] for x in points[fIds[field_idx]]]
         retLabel = lambda x: str(x["fDetId"])+","+str(x["fSubdetId"])+","+str(x["fLabel[3]"])
         labels = np.array([retLabel(points[i]) for i in range(points.size)])
-        fig.add_trace(go.Scatter3d(x=Z, y=X, z=Y,mode='markers',name="Ev "+str(event),
+        fig.add_trace(go.Scatter3d(x=X, y=Y, z=Z,mode='markers',name="Ev "+str(event),
                                     marker=dict(size=6, opacity=0.8, 
                                                 color = colors)
                                     ))
@@ -194,30 +179,7 @@ def graphID(clusters, event_idxs, field_idx):
     print(f"event {event} (idx {idx} contains {len(points)} out of {len(clusters)} clusters")
     axislabels = ["fV.fX","fV.fY","fV.fZ"]
     event_colors = ['#' + c for c in hexcolors]
-    layout = go.Layout(
-        title=f"Clusters",
-        margin=dict(l=10, r=10, b=50, t=50), # tight layout
-        width=900, height=900,
-        scene=dict(
-            xaxis=dict(
-                showbackground=False,
-                title=axislabels[0],
-                showspikes=False
-            ),
-            yaxis=dict(
-                showbackground=False,
-                title=axislabels[1],
-                showspikes=False
-            ),
-            zaxis=dict(
-                showbackground=True,
-                title=axislabels[2],
-                gridcolor='rgb(255, 255, 255)',
-                zerolinecolor='rgb(255, 255, 255)',
-                backgroundcolor='rgb(230, 230,230)'
-            )
-        )
-    )
+    layout = defaultLayout(axislabels)
     retLabel = lambda x: str(x["fDetId"])+","+str(x["fSubdetId"])+","+str(x["fLabel[3]"])
     labels = np.array([retLabel(points[i]) for i in range(points.size)])
     for color_field in fIds:
@@ -234,7 +196,7 @@ def graphID(clusters, event_idxs, field_idx):
             pts = points[points[color_field] == c]
             X = pts["fV.fX"]; Y = pts["fV.fY"]; Z = pts["fV.fZ"]
             color = event_colors[i % len(event_colors)]
-            trace = go.Scatter3d(x=Z, y=X, z=Y,mode='markers',name=color_field+": "+str(c),
+            trace = go.Scatter3d(x=X, y=Y, z=Z,mode='markers',name=color_field+": "+str(c),
                                 marker=dict(size=6,color=color,opacity=0.8))
             fig.add_trace(trace)
         fig.show()
@@ -245,7 +207,6 @@ def graph_tracks(tracks):
     Vs = ['fV.fX','fV.fY','fV.fZ']
     Ps = ['fP.fX','fP.fY','fP.fZ']
     Es = ['fBeta','fDcaXY','fDcaZ','fPVX','fPVY','fPVZ']
-    
     pass
 
 @ timeIt
@@ -265,13 +226,13 @@ def main(config):
     events = np.unique(clusters["event"])
     evsizes2 = [clusters[clusters["event"] == event].size for event in events]
     print(np.mean(evsizes2), np.std(evsizes2), np.min(evsizes2), np.max(evsizes2))
-    
+
     event_idxs = config.evs1.extend(config.evs2)
     if not event_idxs:
         event_idxs = []
     
     if config.clusters:
-        graph_clusters(clusters, event_idxs)
+        graph_clusters(clusters, event_idxs, config.fieldidx)
     else:
         graphID(clusters, event_idxs, config.fieldidx)
 
@@ -284,7 +245,7 @@ if __name__ == "__main__":
                         help="List of events to plot in clusters. Default is 10 random ones")
     parser.add_argument("--clusters", dest="clusters", default=False, action='store_true',
                         help="Graph 10 random clusters or those labeled in events tag")
-    parser.add_argument("--field", dest="fieldidx", default=0, type=int,
+    parser.add_argument("--field", dest="fieldidx", default=2, type=int,
                         help="List of events to plot in clusters. Default is 10 random ones")
     '''
     parser.add_argument("--label", dest="label", default="",
