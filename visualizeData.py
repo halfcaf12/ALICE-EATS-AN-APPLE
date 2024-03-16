@@ -167,10 +167,12 @@ def graph_clusters(clusters, event_idxs):
         event = events[idx]
         points = clusters[clusters["event"] == event]
         X = points["fV.fX"]; Y = points["fV.fY"]; Z = points["fV.fZ"]
+        colors = [event_colors[x % len(event_colors)] for x in points['fDetId']]
         retLabel = lambda x: str(x["fDetId"])+","+str(x["fSubdetId"])+","+str(x["fLabel[3]"])
         labels = np.array([retLabel(points[i]) for i in range(points.size)])
         fig.add_trace(go.Scatter3d(x=Z, y=X, z=Y,mode='markers',name="Ev "+str(event),
-                                    marker=dict(size=6, opacity=0.8, color = event_colors[i % len(event_colors)])
+                                    marker=dict(size=6, opacity=0.8, 
+                                                color = colors)
                                     ))
         i += 1
     fig.show()
@@ -224,6 +226,9 @@ def graphID(clusters, event_idxs, field_idx):
         unique_colors = np.unique(points[color_field])
         Ncolors = len(unique_colors)
         #colorspace = nRGBsFromPoints(viridis_points, Ncolors)
+        event_idxs = [1,2,3]
+        for event in events[event_idxs]:
+            points = np.concatenate((points, clusters[clusters["event"] == event]))
         for i in range(Ncolors):
             c = unique_colors[i]
             pts = points[points[color_field] == c]
@@ -251,9 +256,17 @@ def loadFromNPZ(name):
 def main(config):
     tracks = loadFromNPZ("../tracks")
     print(f"loaded {tracks.size} tracks with fields {tracks.dtype.names}")
+    events = np.unique(tracks["event"])
+    evsizes = [tracks[tracks["event"] == event].size for event in events]
+    print(np.mean(evsizes), np.std(evsizes), np.min(evsizes), np.max(evsizes))
+
 
     clusters = loadFromNPZ("../clusters")
     print(f"loaded {clusters.size} clusters with fields {clusters.dtype.names}")
+    events = np.unique(clusters["event"])
+    evsizes2 = [clusters[clusters["event"] == event].size for event in events]
+    print(np.mean(evsizes2), np.std(evsizes2), np.min(evsizes2), np.max(evsizes2))
+
 
     event_idxs = config.evs1.extend(config.evs2)
     if not event_idxs:
@@ -267,11 +280,11 @@ def main(config):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--events", dest="evs1", default=[], nargs="+",
+    parser.add_argument("--events", dest="evs1", default=[], nargs="+", type=list,
                         help="List of events to plot in clusters. Default is 10 random ones")
-    parser.add_argument("--ev", dest="evs2", default=[], nargs="+",
+    parser.add_argument("--ev", dest="evs2", default=[], nargs="+", type=list,
                         help="List of events to plot in clusters. Default is 10 random ones")
-    parser.add_argument("--clusters", dest="clusters", default=False,
+    parser.add_argument("--clusters", dest="clusters", default=False, action='store_true',
                         help="Graph 10 random clusters or those labeled in events tag")
     parser.add_argument("--field", dest="fieldidx", default=0, type=int,
                         help="List of events to plot in clusters. Default is 10 random ones")

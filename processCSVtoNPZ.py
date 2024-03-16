@@ -50,6 +50,23 @@ def npzFromCSV(csv_paths, name, dtype):
     print(dtype)
     np.savez_compressed(name+'.npz', tracks)
 
+def allEventCSVs():
+    """ organize clusters into csv files by event """
+    curdir = os.getcwd()
+    newdir = curdir+"../eventcsvs"
+    if not os.path.isdir(newdir):
+        os.mkdir(newdir)
+    clustername = "../clusters.npz"
+    clusters = np.load(clustername)['arr_0']
+    axislabels = ["fV.fX","fV.fY","fV.fZ"]
+    events = np.unique(clusters["event"])
+    with tqdm(total = len(events)) as pbar:
+        for event in events:
+            points = clusters[clusters["event"] == event]
+            X = points[axislabels[0]]; Y = points[axislabels[1]]; Z = points[axislabels[2]]
+            thing = np.stack((X,Y,Z),axis=-1)
+            np.savetxt(f"{newdir}/{event}.csv", thing, delimiter=',')
+            pbar.update(1)
 
 def main(config):
     curdir = os.getcwd()
@@ -68,13 +85,18 @@ def main(config):
     if config.makeclusters:
         print("making clusters npz...")
         npzFromCSV(clusters_fnames, "clusters", points_dtype)
+    
+    if config.makecsvs:
+        print("making csvs")
+        allEventCSVs()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tracks", dest="maketracks", default=False, 
+    parser.add_argument("--tracks", dest="maketracks", default=False, action='store_true',
                         help="Make tracks.npz")
-    parser.add_argument("--clusters", dest="makeclusters", default=False, 
+    parser.add_argument("--clusters", dest="makeclusters", default=False, action='store_true',
                         help="Make clusters.npz")
-    parser.add_argument("--dtype", dest="showdtype", default=True, help="Show dtype of both")
+    parser.add_argument("--nodtype", dest="showdtype", default=True, action='store_false', help="Show dtype of both")
+    parser.add_argument("--csvs", dest="makecsvs", default=False, action='store_true', help="makecsvs")
     args = parser.parse_args()
     main(args)
