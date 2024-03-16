@@ -8,6 +8,7 @@ import matplotlib.ticker as mtick
 import matplotlib.lines as mlines
 import plotly.graph_objects as go
 from cycler import cycler
+import argparse
 # IBM's colorblind-friendly colors
 #           |   Red  |   Blue  |  Purple |  Orange | Yellow  |   Green |   Teal  | Grey
 hexcolors = ['DC267F', '648FFF', '785EF0', 'FE6100', 'FFB000', '009E73', '3DDBD9', '808080']
@@ -108,12 +109,10 @@ def graph_3d(min_X, model, coeffs, x_res=10, amps_arnd_center=1.5, x_dim=3):
         fig.show()
 
 # graph fV.fY,....
-def graph_clusters(clusters):
+def graph_clusters(clusters, event_idxs):
     events = np.unique(clusters["event"])
     numevents = len(events)
-    print(numevents)
-    i = 0
-    maxnumevents = 10
+    print(f"there are {numevents} events in clusters")
     axislabels = ["fV.fX","fV.fY","fV.fZ"]
     event_colors = ['#' + c for c in hexcolors]
     layout = go.Layout(
@@ -143,25 +142,26 @@ def graph_clusters(clusters):
     )
     fig = go.Figure(layout=layout)
     
-    for event in events:
+    if not len(event_idxs):
+        event_idxs = np.random.randint(0,numevents,(10))
+    for i in event_idxs:
+        if i < 0 or i > numevents: continue
+        event = events[i]
         points = clusters[clusters["event"] == event]
         X = points["fV.fX"]; Y = points["fV.fY"]; Z = points["fV.fZ"]
         retLabel = lambda x: str(x["fDetId"])+","+str(x["fSubdetId"])+","+str(x["fLabel[3]"])
         labels = np.array([retLabel(points[i]) for i in range(points.size)])
         fig.add_trace(go.Scatter3d(
-            x=X, y=Y, z=Z,
+            x=Z, y=X, z=Y,
             mode='markers',
+            #hover_data=labels,
             marker=dict(
                 size=6,
                 color = event_colors[i % len(event_colors)], # set color to an array/list of desired values
-                opacity=0.8
+                opacity=0.8,
             ),
-            name=str(event)
+            name="Ev "+str(event)
         ))
-
-        i += 1
-        if i == maxnumevents:
-            break
     
     fig.show()
 
@@ -178,12 +178,44 @@ def graph_tracks(tracks):
 def loadFromNPZ(name):
     return np.load(name+".npz")['arr_0']
 
-tracks = loadFromNPZ("../tracks")
-print(tracks.shape)
-print(tracks.dtype)
+# ----- MAIN ----- #
+def main(config):
+    tracks = loadFromNPZ("../tracks")
+    print(f"loaded {tracks.size} tracks with fields {tracks.dtype.fields}")
 
-clusters = loadFromNPZ("../clusters")
-print(clusters.shape)
-print(clusters.dtype)
+    clusters = loadFromNPZ("../clusters")
+    print(f"loaded {clusters.size} clusters with fields {clusters.dtype.fields}")
 
-graph_clusters(clusters)
+    event_idxs = config.evs1.extend(config.evs2)
+    if not event_idxs:
+        event_idxs = []
+    graph_clusters(clusters, event_idxs)
+
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--events", dest="evs1", default=[], nargs="+",
+                        help="List of events to plot in clusters. Default is 10 random ones")
+    parser.add_argument("--ev", dest="evs2", default=[], nargs="+",
+                        help="List of events to plot in clusters. Default is 10 random ones")
+    '''
+    parser.add_argument("--label", dest="label", default="",
+                        help="Label of pkl file (after seed part).") 
+    parser.add_argument("--seeds", dest="seeds", default=[-1], nargs="+",
+                        help="List of target seeds to plot.") 
+    parser.add_argument("--ext", dest="ext", default="png",
+                        help="Image extension (e.g., pdf or png)") 
+    parser.add_argument("--convergence", dest='convergence', default='max',
+                        help="How normalized parameter iterations are combined into a total convergence level: 'sum', 'max', 'min', 'mean'")
+    parser.add_argument("--plot", dest='plot', default=[], nargs="+",
+                        help="List of plot specifications: \nloss [UNIF_LEN] ['avg']: make loss plots, [int length for smoothing] [make moving average loss plot] \nall: plot parameter iterations, \
+                              \nconv: make parameter convergence plots\n dedx [NUM_BINS]: make histogram of energy data [int number of histogram bins], edit configurations in main() 471 \
+                              ")
+    parser.add_argument("--linewidth", dest='linewidth', default=None,
+                        help="List of plot specifications: \nloss: make loss plots, \nall: plot parameter iterations, \nconvergence: make parameter convergence plots")
+    parser.add_argument("--ladd", dest='label_add', default='',
+                        help="List of plot specifications: \nloss: make loss plots, \nall: plot parameter iterations, \nconvergence: make parameter convergence plots")
+    '''
+    args = parser.parse_args()
+    main(args)
