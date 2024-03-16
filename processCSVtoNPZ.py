@@ -7,12 +7,12 @@ from numpy.lib import recfunctions as rf
 # -------- CONTROL DA DAMN ISH ----------- #
 # make points / Clusters
 make_points = False
-make_tracks = False
+make_tracks = True
 make_csvs   = False
 
 curdir = os.getcwd()
-dir0 = curdir+"/Clusters"
-dir1 = curdir+"/RecTracks"
+dir0 = curdir+"/csvs/Clusters"
+dir1 = curdir+"/csvs/RecTracks"
 # making huge dataset of all data together
 
 def getDtype(filename):
@@ -25,20 +25,10 @@ def getDtype(filename):
                 if labels[0] == "fDetId":
                     types.append(np.dtype(np.int8))
                 firstColumn = False
-            try:
-                int(column)
-                types.append(np.int32)
-                continue
-            except ValueError:
-                pass
-            try:
-                float(column)
+            if '.' in column:
                 types.append(np.float32)
-                continue
-            except ValueError:
-                pass
-            print("u fucked up somehow... new type???",column)
-            types.append(np.dtype.str)
+            else:
+                types.append(np.int32)
     lst = [("event",np.dtype(np.int16))]
     for i in range(len(labels)):
         field = (labels[i], types[i])
@@ -48,7 +38,7 @@ def getDtype(filename):
 
 clusters_fnames = glob(dir0+"/*")
 tracks_fnames = glob(dir1+"/*")
-points_dtype = getDtype(clusters_fnames[0])
+points_dtype = np.dtype([('event', '<i2'), ('fDetId', 'i1'), ('fSubdetId', '<i4'), ('fLabel[3]', '<i4'), ('fV.fX', '<i4'), ('fV.fY', '<f4'), ('fV.fZ', '<f4')])
 tracks_dtype = getDtype(tracks_fnames[0])
 
 if make_points:
@@ -68,7 +58,7 @@ if make_points:
     print(points.shape)
     print(points[0])
     print(points.dtype)
-    np.savez_compressed('clusters.npz', points)
+    np.savez_compressed('../clusters.npz', points)
 
 print(tracks_dtype)
 if make_tracks:
@@ -78,9 +68,6 @@ if make_tracks:
         for filename in tracks_fnames: 
             event = int(filename.split('_')[-2][5:])
             data = np.loadtxt(filename, delimiter=';', skiprows=1)
-            if event == 107:
-                print(data)
-                print(len(data.shape))
             if data.size:  # data may be empty - no tracks
                 if len(data.shape) == 1: # need to make 2D at least
                     data = np.array([data])
@@ -95,5 +82,5 @@ if make_tracks:
     print(tracks.shape)
     print(tracks[0])
     print(tracks.dtype)
-    np.savez_compressed('tracks.npz', tracks)
+    np.savez_compressed('../tracks.npz', tracks)
 

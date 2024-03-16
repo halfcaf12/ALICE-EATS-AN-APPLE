@@ -114,6 +114,32 @@ def graph_clusters(clusters):
     print(numevents)
     i = 0
     maxnumevents = 10
+    layout = go.Layout(
+            title=f"Transition Frequency vs. Induced Current in {x_lbl[0]}-{y_lbl[0]}",
+            margin=dict(l=0, r=0, b=20, t=50), # tight layout
+            width=500, height=500,
+            #contours_z=dict(show=True, usecolormap=True, highlightcolor="limegreen", project_z=True),
+            scene=dict(
+                xaxis=dict(
+                    showbackground=False,
+                    title=x_lbl,
+                    showspikes=False
+                ),
+                yaxis=dict(
+                    showbackground=False,
+                    title=y_lbl,
+                    showspikes=False
+                ),
+                zaxis=dict(
+                    showbackground=True,
+                    title='Frequency (MHz)',
+                    gridcolor='rgb(255, 255, 255)',
+                    zerolinecolor='rgb(255, 255, 255)',
+                    backgroundcolor='rgb(230, 230,230)'
+                )
+            )
+    )
+    fig = go.Figure(layout=layout)
     for event in events:
         points = clusters["event" == event]
         X = points["fV.fX"]; Y = points["fV.fY"]; Z = points["fV.fZ"]
@@ -169,25 +195,22 @@ def graph_clusters(clusters):
             )
         )
     )
-    data = [scatter]
-    fig = go.Figure(data=data, layout=layout)
     fig.show()
 
 def graph_tracks(tracks):
     # go, how do you construct a line tho???
     pass
 
-DATADIR = "/Users/benkroul/Documents/CS/final_229/csvs/"
 @ timeIt
 def loadFromNPZ(name):
-    return np.load(DATADIR+name+".npz")['arr_0']
+    return np.load(name+".npz")['arr_0']
 
-tracks = loadFromNPZ("tracks")
+tracks = loadFromNPZ("../tracks")
 print(tracks.shape)
 print(tracks.dtype)
 
-clusters = loadFromNPZ("clusters")
+clusters = loadFromNPZ("../clusters")
 print(clusters.shape)
 print(clusters.dtype)
 
-graph_clusters()
+graph_clusters(clusters)
