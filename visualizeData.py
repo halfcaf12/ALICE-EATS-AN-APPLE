@@ -114,25 +114,27 @@ def graph_clusters(clusters):
     print(numevents)
     i = 0
     maxnumevents = 10
+    axislabels = ["fV.fX","fV.fY","fV.fZ"]
+    event_colors = ['#' + c for c in hexcolors]
     layout = go.Layout(
-            title=f"Transition Frequency vs. Induced Current in {x_lbl[0]}-{y_lbl[0]}",
+            title=f"Clusters",
             margin=dict(l=0, r=0, b=20, t=50), # tight layout
-            width=500, height=500,
+            width=1200, height=900,
             #contours_z=dict(show=True, usecolormap=True, highlightcolor="limegreen", project_z=True),
             scene=dict(
                 xaxis=dict(
                     showbackground=False,
-                    title=x_lbl,
+                    title=axislabels[0],
                     showspikes=False
                 ),
                 yaxis=dict(
                     showbackground=False,
-                    title=y_lbl,
+                    title=axislabels[1],
                     showspikes=False
                 ),
                 zaxis=dict(
                     showbackground=True,
-                    title='Frequency (MHz)',
+                    title=axislabels[2],
                     gridcolor='rgb(255, 255, 255)',
                     zerolinecolor='rgb(255, 255, 255)',
                     backgroundcolor='rgb(230, 230,230)'
@@ -140,65 +142,36 @@ def graph_clusters(clusters):
             )
     )
     fig = go.Figure(layout=layout)
+    
     for event in events:
-        points = clusters["event" == event]
+        points = clusters[clusters["event"] == event]
         X = points["fV.fX"]; Y = points["fV.fY"]; Z = points["fV.fZ"]
-        doLabel = lambda x: x["sub"]
-        labels = np.array([doLabel(points[i]) for i in range(points.size)])
+        retLabel = lambda x: str(x["fDetId"])+","+str(x["fSubdetId"])+","+str(x["fLabel[3]"])
+        labels = np.array([retLabel(points[i]) for i in range(points.size)])
+        fig.add_trace(go.Scatter3d(
+            x=X, y=Y, z=Z,
+            mode='markers',
+            marker=dict(
+                size=6,
+                color = event_colors[i % len(event_colors)], # set color to an array/list of desired values
+                opacity=0.8
+            ),
+            name=str(event)
+        ))
+
         i += 1
         if i == maxnumevents:
             break
-
-    labeled_pts = clusters["fDetId"]
     
-    labels = ["fV.fX","fV.fY","fV.fZ"]
-    scatter = go.Scatter3d(
-        x=X, y=Y, z=Z,
-        mode='markers',
-        marker=dict(
-            size=6,
-            color=-YY,                # set color to an array/list of desired values
-            colorscale='Viridis',   # choose a colorscale
-            opacity=0.5
-        ),
-        name='model'
-    )
-    surface = go.Surface(x=xx, y=yy, z=YY, opacity=0.8,
-                            contours = {"x": {"show": True, "start": 1.5, "end": 2, "size": 0.04, "color":"white"},
-                                        "y": {"show": True, "start": 0.5, "end": 0.8, "size": 0.05},
-                                        "z": {"show": True, "usecolormap": True, "highlightcolor": "limegreen", "project_z": True}
-                                    }
-                        )
-    x_lbl = lbllst[(i+1)%3]; y_lbl = lbllst[(i+2)%3]
-    layout = go.Layout(
-        title=f"Transition Frequency vs. Induced Current in {x_lbl[0]}-{y_lbl[0]}",
-        margin=dict(l=0, r=0, b=20, t=50), # tight layout
-        width=500, height=500,
-        #contours_z=dict(show=True, usecolormap=True, highlightcolor="limegreen", project_z=True),
-        scene=dict(
-            xaxis=dict(
-                showbackground=False,
-                title=x_lbl,
-                showspikes=False
-            ),
-            yaxis=dict(
-                showbackground=False,
-                title=y_lbl,
-                showspikes=False
-            ),
-            zaxis=dict(
-                showbackground=True,
-                title='Frequency (MHz)',
-                gridcolor='rgb(255, 255, 255)',
-                zerolinecolor='rgb(255, 255, 255)',
-                backgroundcolor='rgb(230, 230,230)'
-            )
-        )
-    )
     fig.show()
 
 def graph_tracks(tracks):
     # go, how do you construct a line tho???
+    fields = ['fLabel','fIndex','fStatus','fSign']
+    Vs = ['fV.fX','fV.fY','fV.fZ']
+    Ps = ['fP.fX','fP.fY','fP.fZ']
+    Es = ['fBeta','fDcaXY','fDcaZ','fPVX','fPVY','fPVZ']
+    
     pass
 
 @ timeIt

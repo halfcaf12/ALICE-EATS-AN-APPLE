@@ -7,8 +7,9 @@ from numpy.lib import recfunctions as rf
 # -------- CONTROL DA DAMN ISH ----------- #
 # make points / Clusters
 make_points = False
-make_tracks = True
+make_tracks = False
 make_csvs   = False
+showDtype = True
 
 curdir = os.getcwd()
 dir0 = curdir+"/csvs/Clusters"
@@ -41,6 +42,10 @@ tracks_fnames = glob(dir1+"/*")
 points_dtype = np.dtype([('event', '<i2'), ('fDetId', 'i1'), ('fSubdetId', '<i4'), ('fLabel[3]', '<i4'), ('fV.fX', '<i4'), ('fV.fY', '<f4'), ('fV.fZ', '<f4')])
 tracks_dtype = getDtype(tracks_fnames[0])
 
+if showDtype:
+    print(points_dtype)
+    print(tracks_dtype)
+
 if make_points:
     points = False
     print("making clusters csv to npz")
@@ -60,7 +65,6 @@ if make_points:
     print(points.dtype)
     np.savez_compressed('../clusters.npz', points)
 
-print(tracks_dtype)
 if make_tracks:
     tracks = False
     print("making tracks csv to npz")
