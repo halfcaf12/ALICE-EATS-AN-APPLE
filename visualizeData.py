@@ -116,29 +116,29 @@ def graph_clusters(clusters, event_idxs):
     axislabels = ["fV.fX","fV.fY","fV.fZ"]
     event_colors = ['#' + c for c in hexcolors]
     layout = go.Layout(
-            title=f"Clusters",
-            margin=dict(l=0, r=0, b=20, t=50), # tight layout
-            width=1200, height=900,
-            #contours_z=dict(show=True, usecolormap=True, highlightcolor="limegreen", project_z=True),
-            scene=dict(
-                xaxis=dict(
-                    showbackground=False,
-                    title=axislabels[0],
-                    showspikes=False
-                ),
-                yaxis=dict(
-                    showbackground=False,
-                    title=axislabels[1],
-                    showspikes=False
-                ),
-                zaxis=dict(
-                    showbackground=True,
-                    title=axislabels[2],
-                    gridcolor='rgb(255, 255, 255)',
-                    zerolinecolor='rgb(255, 255, 255)',
-                    backgroundcolor='rgb(230, 230,230)'
-                )
+        title=f"Clusters",
+        margin=dict(l=0, r=0, b=20, t=50), # tight layout
+        width=900, height=900,
+        #contours_z=dict(show=True, usecolormap=True, highlightcolor="limegreen", project_z=True),
+        scene=dict(
+            xaxis=dict(
+                showbackground=False,
+                title=axislabels[0],
+                showspikes=False
+            ),
+            yaxis=dict(
+                showbackground=False,
+                title=axislabels[1],
+                showspikes=False
+            ),
+            zaxis=dict(
+                showbackground=True,
+                title=axislabels[2],
+                gridcolor='rgb(255, 255, 255)',
+                zerolinecolor='rgb(255, 255, 255)',
+                backgroundcolor='rgb(230, 230,230)'
             )
+        )
     )
     fig = go.Figure(layout=layout)
     
