@@ -13,6 +13,22 @@ import argparse
 #           |   Red  |   Blue  |  Purple |  Orange | Yellow  |   Green |   Teal  | Grey
 hexcolors = ['DC267F', '648FFF', '785EF0', 'FE6100', 'FFB000', '009E73', '3DDBD9', '808080']
 mpl.rcParams['axes.prop_cycle'] = cycler('color', [mpl.colors.to_rgba('#' + c) for c in hexcolors])
+def nRGBsFromPoints(color_points, n_colors) -> list:
+    ret = False
+    N = len(color_points)
+    nstep = n_colors // (N-1)
+    for i in range(1,N):
+        if isinstance(ret, bool):
+            ret = np.linspace(start = color_points[i-1], stop = color_points[i], num = nstep)[0]
+        else:
+            new = np.linspace(start = color_points[i-1], stop = color_points[i], num = nstep)
+            ret = np.vstack((ret, new[0]))
+    ret = np.append(ret, color_points[-1])
+    print(ret)
+    colors = [f"rgb({i[0]},{i[1]},{i[2]})" for i in ret]
+    return colors
+viridis_points = [(253,231,37),(79,197,106),(34,141,141),(65,66,136),(69,13,83)]
+
 class justADictionary():
     def __init__(self, my_name):
         self.name = my_name
@@ -117,7 +133,7 @@ def graph_clusters(clusters, event_idxs):
     event_colors = ['#' + c for c in hexcolors]
     layout = go.Layout(
         title=f"Clusters",
-        margin=dict(l=0, r=0, b=20, t=50), # tight layout
+        margin=dict(l=10, r=10, b=50, t=50), # tight layout
         width=900, height=900,
         #contours_z=dict(show=True, usecolormap=True, highlightcolor="limegreen", project_z=True),
         scene=dict(
@@ -144,26 +160,79 @@ def graph_clusters(clusters, event_idxs):
     
     if not len(event_idxs):
         event_idxs = np.random.randint(0,numevents,(10))
-    for i in event_idxs:
-        if i < 0 or i > numevents: continue
-        event = events[i]
+    i = 0
+    fIds = ("fDetId","fSubdetId","fLabel[3]")
+    for idx in event_idxs:
+        if idx < 0 or idx > numevents: continue
+        event = events[idx]
         points = clusters[clusters["event"] == event]
         X = points["fV.fX"]; Y = points["fV.fY"]; Z = points["fV.fZ"]
         retLabel = lambda x: str(x["fDetId"])+","+str(x["fSubdetId"])+","+str(x["fLabel[3]"])
         labels = np.array([retLabel(points[i]) for i in range(points.size)])
-        fig.add_trace(go.Scatter3d(
-            x=Z, y=X, z=Y,
-            mode='markers',
-            #hover_data=labels,
-            marker=dict(
-                size=6,
-                color = event_colors[i % len(event_colors)], # set color to an array/list of desired values
-                opacity=0.8,
-            ),
-            name="Ev "+str(event)
-        ))
-    
+        fig.add_trace(go.Scatter3d(x=Z, y=X, z=Y,mode='markers',name="Ev "+str(event),
+                                    marker=dict(size=6, opacity=0.8, color = event_colors[i % len(event_colors)])
+                                    ))
+        i += 1
     fig.show()
+
+def graphID(clusters, event_idxs, field_idx):
+    ''' field_idx between 0 and 2 for clusters '''
+    if not len(event_idxs):
+        idx = 0
+    else:
+        idx = event_idxs[0]
+    fIds = ("fDetId","fSubdetId","fLabel[3]")
+    if field_idx >= len(fIds): field_idx = len(fIds) - 1
+    if field_idx < 0: field_idx = 0
+    fId = fIds[field_idx]
+    print("graphing fId")
+    events = np.unique(clusters["event"])
+    event = events[idx]
+    points = clusters[clusters["event"] == event]
+    print(f"event {event} (idx {idx} contains {len(points)} out of {len(clusters)} clusters")
+    axislabels = ["fV.fX","fV.fY","fV.fZ"]
+    event_colors = ['#' + c for c in hexcolors]
+    layout = go.Layout(
+        title=f"Clusters",
+        margin=dict(l=10, r=10, b=50, t=50), # tight layout
+        width=900, height=900,
+        scene=dict(
+            xaxis=dict(
+                showbackground=False,
+                title=axislabels[0],
+                showspikes=False
+            ),
+            yaxis=dict(
+                showbackground=False,
+                title=axislabels[1],
+                showspikes=False
+            ),
+            zaxis=dict(
+                showbackground=True,
+                title=axislabels[2],
+                gridcolor='rgb(255, 255, 255)',
+                zerolinecolor='rgb(255, 255, 255)',
+                backgroundcolor='rgb(230, 230,230)'
+            )
+        )
+    )
+    retLabel = lambda x: str(x["fDetId"])+","+str(x["fSubdetId"])+","+str(x["fLabel[3]"])
+    labels = np.array([retLabel(points[i]) for i in range(points.size)])
+    for color_field in fIds:
+        layout.title=color_field
+        fig = go.Figure(layout=layout)
+        unique_colors = np.unique(points[color_field])
+        Ncolors = len(unique_colors)
+        #colorspace = nRGBsFromPoints(viridis_points, Ncolors)
+        for i in range(Ncolors):
+            c = unique_colors[i]
+            pts = points[points[color_field] == c]
+            X = pts["fV.fX"]; Y = pts["fV.fY"]; Z = pts["fV.fZ"]
+            color = event_colors[i % len(event_colors)]
+            trace = go.Scatter3d(x=Z, y=X, z=Y,mode='markers',name=color_field+": "+str(c),
+                                marker=dict(size=6,color=color,opacity=0.8))
+            fig.add_trace(trace)
+        fig.show()
 
 def graph_tracks(tracks):
     # go, how do you construct a line tho???
@@ -181,16 +250,19 @@ def loadFromNPZ(name):
 # ----- MAIN ----- #
 def main(config):
     tracks = loadFromNPZ("../tracks")
-    print(f"loaded {tracks.size} tracks with fields {tracks.dtype.fields}")
+    print(f"loaded {tracks.size} tracks with fields {tracks.dtype.names}")
 
     clusters = loadFromNPZ("../clusters")
-    print(f"loaded {clusters.size} clusters with fields {clusters.dtype.fields}")
+    print(f"loaded {clusters.size} clusters with fields {clusters.dtype.names}")
 
     event_idxs = config.evs1.extend(config.evs2)
     if not event_idxs:
         event_idxs = []
-    graph_clusters(clusters, event_idxs)
-
+    
+    if config.clusters:
+        graph_clusters(clusters, event_idxs)
+    else:
+        graphID(clusters, event_idxs, config.fieldidx)
 
 
 if __name__ == "__main__":
@@ -199,6 +271,10 @@ if __name__ == "__main__":
                         help="List of events to plot in clusters. Default is 10 random ones")
     parser.add_argument("--ev", dest="evs2", default=[], nargs="+",
                         help="List of events to plot in clusters. Default is 10 random ones")
+    parser.add_argument("--clusters", dest="clusters", default=False,
+                        help="Graph 10 random clusters or those labeled in events tag")
+    parser.add_argument("--field", dest="fieldidx", default=0, type=int,
+                        help="List of events to plot in clusters. Default is 10 random ones")
     '''
     parser.add_argument("--label", dest="label", default="",
                         help="Label of pkl file (after seed part).") 
@@ -206,16 +282,6 @@ if __name__ == "__main__":
                         help="List of target seeds to plot.") 
     parser.add_argument("--ext", dest="ext", default="png",
                         help="Image extension (e.g., pdf or png)") 
-    parser.add_argument("--convergence", dest='convergence', default='max',
-                        help="How normalized parameter iterations are combined into a total convergence level: 'sum', 'max', 'min', 'mean'")
-    parser.add_argument("--plot", dest='plot', default=[], nargs="+",
-                        help="List of plot specifications: \nloss [UNIF_LEN] ['avg']: make loss plots, [int length for smoothing] [make moving average loss plot] \nall: plot parameter iterations, \
-                              \nconv: make parameter convergence plots\n dedx [NUM_BINS]: make histogram of energy data [int number of histogram bins], edit configurations in main() 471 \
-                              ")
-    parser.add_argument("--linewidth", dest='linewidth', default=None,
-                        help="List of plot specifications: \nloss: make loss plots, \nall: plot parameter iterations, \nconvergence: make parameter convergence plots")
-    parser.add_argument("--ladd", dest='label_add', default='',
-                        help="List of plot specifications: \nloss: make loss plots, \nall: plot parameter iterations, \nconvergence: make parameter convergence plots")
     '''
     args = parser.parse_args()
     main(args)
