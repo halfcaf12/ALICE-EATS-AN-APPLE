@@ -5,7 +5,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
-#include <map>
+#include <map> 
 /*
 #include "TFile.h"
 #include "TTree.h"
@@ -20,6 +20,8 @@
 using namespace std;
 
 /* 
+load data from alice masterclass files at /eos/opendata/alice/masterclass/*.root
+
 I have changed this to work off of the github as is, using 
 dir/roots/ to get the root files 
 storeCSV assumes existence of csvs/Clusters and csvs/RecTracks 
@@ -208,7 +210,7 @@ const char* fname = f->GetName();
    myfile.close();
 }
 
-void printLeaves(const char* tree_name, TDirectoryFile* f, const int masterclass_index) {
+void doPrintLeaves(const char* tree_name, TDirectoryFile* f, const int masterclass_index) {
    TTree *tree = (TTree*)f->Get(tree_name);
    TObjArray* leavesList = tree->GetListOfLeaves();
    for (TObject* obj: *leavesList) {
@@ -247,16 +249,17 @@ void treeToCSV() {
          const char* fname = f->GetName();
          TDirectoryFile* event = (TDirectoryFile*)fd->Get(fname);
 
-         if printLeaves() {
-
+         if (printLeaves) {
+            doPrintLeaves("Clusters", event, i);
+            doPrintLeaves("RecTracks", event, i);
          }
          if (makeRoots) {
-            storeTree("Clusters", event, index);
-            storeTree("RecTracks", event, index);
+            storeTree("Clusters", event, i);
+            storeTree("RecTracks", event, i);
          }
          if (makeCSVs) {
-            storeClustersCSV("Clusters", event, index);
-            storeTracksCSV("RecTracks", event, index);
+            storeClustersCSV("Clusters", event, i);
+            storeTracksCSV("RecTracks", event, i);
          }
       }
       free(filename);
