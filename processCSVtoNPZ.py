@@ -87,7 +87,7 @@ def main(config):
         npzFromCSV(clusters_fnames, "clusters", points_dtype)
     
     if config.makecsvs:
-        print("making csvs")
+        print("making csvs in folder ../eventcsvs")
         allEventCSVs()
 
 if __name__ == "__main__":
