@@ -4,7 +4,8 @@ import numpy as np
 import os, sys, time
 from sklearn.model_selection import train_test_split
 from visualizeData import loadFromNPZ
-
+import argparse
+from typing import Dict
 
 def fit_and_score(estimator, X_train, X_test, y_train, y_test):
     """Fit the estimator on the train set and score it on both sets"""
@@ -42,7 +43,7 @@ points = clusters[clusters["event"] == events[eventidx]]
 # want to model 
 XY = np.stack((points["fV.fX"],points["fV.fY"]),axis=-1)
 train, valid, test = train_valid_test(XY, 0.125, 0.125, random_state)
-
+Z = points["f"]
 
 
 
@@ -81,9 +82,6 @@ for train, test in cv.split(X, y):
     )
     results[est] = (train_score, test_score)
 
-
-import argparse
-from typing import Dict
 
 def f(x: np.ndarray) -> np.ndarray:
     """The function to predict."""
