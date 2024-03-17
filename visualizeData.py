@@ -10,6 +10,8 @@ import plotly.graph_objects as go
 import plotly.express as px
 from cycler import cycler
 import argparse
+
+# ---- CONSTANTS ---- #
 # IBM's colorblind-friendly colors
 #           |   Red  |   Blue  |  Purple |  Orange | Yellow  |   Green |   Teal  | Grey
 hexcolors = ['DC267F', '648FFF', '785EF0', 'FE6100', 'FFB000', '009E73', '3DDBD9', '808080']
@@ -59,12 +61,12 @@ def timeIt(func):
     return wrapper
 Ith = lambda i: str(i) + ("th" if (abs(i) % 100 in (11,12,13)) else ["th","st","nd","rd","th","th","th","th","th","th"][abs(i) % 10])
 
-# graph cylinders in plotly
+# ----- PLOTTING FUNCTIONS ----- #
 def goCylinder(r, h, a=0, nt=100, nz=50, color='blue', opacity=0.1):
     """
     parametrized cylinder w radius r, height h, base z a, number of theta points nt, number of z points nz
     """
-    theta = np.linspace(0, 2*np.pi, nt)
+    theta = np.linspace(0, 2*np.pi, nt+1)
     z = np.linspace(a, a+h, nz )
     theta, z = np.meshgrid(theta, z)
     x = r*np.cos(theta)
@@ -73,21 +75,52 @@ def goCylinder(r, h, a=0, nt=100, nz=50, color='blue', opacity=0.1):
                           showscale=False, opacity=opacity, showlegend=False, hoverinfo='skip')
     return cylinder
 
-def addCylindersToFig(fig: go.Figure):
-    """ plot the boundary cylinders onto a figure """
-    opacity = 0.1
-    middle = [goCylinder(r, 500, -300, 18, 2, 'blue', opacity) for r in (84,133,248)]
-    close = [goCylinder(r, 500, -300, 18, 2, 'red', opacity) for r in (4,7,16,38,43)]
-    far = [goCylinder(r, 500, -300, 18, 2, 'purple', opacity) for r in (292.5,383.15)]
-    fig.add_traces(middle+close+far)
+def goCircle(r, z_offset, nt, color, width, opacity=0.5):
+    theta = np.linspace(0, 2*np.pi, nt+1)
+    x = r*np.cos(theta)
+    y = r*np.sin(theta)
+    circ = go.Scatter3d(x = x.tolist(), y = y.tolist(), z = [z_offset]*(nt+1),
+                        mode ='lines', line = dict(color=color, width=width),
+                        opacity=opacity, showlegend=False, hoverinfo='skip')
+    return circ
 
+def goLines(rs, z_offset, nt, color, width, opacity=0.5):
+    theta = np.linspace(0, 2*np.pi, nt, endpoint=False)
+    x = []; y = []; z = []
+    for th in theta:
+        x.extend([rs[0]*np.cos(th),rs[1]*np.cos(th),None])
+        y.extend([rs[0]*np.sin(th),rs[1]*np.sin(th),None])
+        z.extend([z_offset, z_offset,None])
+    line = go.Scatter3d(x = x, y = y, z = z, mode ='lines', line = dict(color=color, width=width),
+                        opacity=opacity, showlegend=False, hoverinfo='skip')
+    return line
+
+def addBoundaries(fig: go.Figure, make_cylinders=False):
+    """ plot the boundary cylinders onto a figure """
+    opacity = 0.1; linewidth = 3
+    z_offset = -400
+    colors = ['blue','red','purple']
+    for r in (5,10,17,35,40):  # close
+        if make_cylinders: fig.add_trace(goCylinder(r, -z_offset*2, z_offset, 18, 2, colors[1], opacity))
+        fig.add_trace(goCircle(r, z_offset, 18, colors[1], linewidth))
+    fig.add_trace(goLines((1,45), z_offset, 18, colors[1], linewidth))
+    for r in (85,135,250):   # middle
+        if make_cylinders: fig.add_trace(goCylinder(r, -z_offset*2, z_offset, 18, 2, colors[0], opacity))
+        fig.add_trace(goCircle(r, z_offset, 18, colors[0], linewidth))
+    fig.add_trace(goLines((85,250),  z_offset, 18, colors[0], linewidth))
+    for r in (292.5,375):    # far
+        if make_cylinders: fig.add_trace(goCylinder(r, -z_offset*2, z_offset, 18, 2, colors[2], opacity))
+        fig.add_trace(goCircle(r, z_offset, 18, colors[2], linewidth))
+    fig.add_trace(goLines((292.5,375), z_offset, 18, colors[2], linewidth))
+    
 defaultLayout = lambda axislabels: go.Layout(
         title=f"Clusters",
         margin=dict(l=10, r=10, b=50, t=120), # tight layout, give title some room
         width=1500, height=1000,
         #contours_z=dict(show=True, usecolormap=True, highlightcolor="limegreen", project_z=True),
         scene=dict(
-            camera = dict(projection=dict(type = "orthographic")),
+            camera = dict(eye=dict(x=0., y=0., z=1.5),  # XY plane looking down
+                          projection=dict(type = "orthographic")),
             xaxis=dict(
                 showbackground=False,
                 title=axislabels[0],
@@ -109,16 +142,21 @@ defaultLayout = lambda axislabels: go.Layout(
         )
     )
 
+# ----- HANDLING POINTS ------ #
 fIds = ("fDetId","fLabel[3]","fSubdetId")
 retLabel = lambda x: ':'.join([str(x[fid]) for fid in fIds])
 MAXEVENTS = 300000
-def getFieldPoints(clusters: np.ndarray, field: str, idxs: list[int], maxnumevents=MAXEVENTS, printinfo=0):
+def getFieldPoints(clusters: np.ndarray, field: str | int, idxs: list[int], maxnumevents=MAXEVENTS, printinfo=0):
     ''' concatenates [clusters[clusters[field] == thing] where
      - idxs: specifies idxs into np.unique(clusters[field])
      - printinfo: 0-no info, 1-only size of concatenated, 2-all fields info
      - maxnumevents: maximum number of events to include so plotly doesn't crash 
     '''
-    events = np.unique(clusters[field])
+    if isinstance(field,str):
+        events = np.unique(clusters[field])
+    else:
+        assert isinstance(field, int)
+        events = np.unique(clusters[:,field])
     if not len(idxs):  # maximize number of events possible
         idxs = np.linspace(0,events.shape[0],events.shape[0],endpoint=False,dtype=int)
         np.random.shuffle(idxs)
@@ -126,10 +164,13 @@ def getFieldPoints(clusters: np.ndarray, field: str, idxs: list[int], maxnumeven
     events_used = []
     for evidx in idxs:
         event = events[evidx]
-        ev_clusters = clusters[clusters[field] == event]
+        if isinstance(field, str):
+            ev_clusters = clusters[clusters[field] == event]
+        else:
+            ev_clusters = clusters[clusters[:,field] == event]
         if printinfo == 2: print(f"{evidx} {field} {event} contains {ev_clusters.size} clusters")
         if ev_clusters.size > MAXEVENTS:
-            print(f"{field} {event} has {ev_clusters.size} points!")
+            print(f"f {field} ev {event} has {ev_clusters.size} points!")
             continue
         if isinstance(points, bool):
             points = ev_clusters
@@ -141,12 +182,14 @@ def getFieldPoints(clusters: np.ndarray, field: str, idxs: list[int], maxnumeven
         evidx = idxs[0]
         event = events[evidx]
         print(f"using the first {maxnumevents} pts from {Ith(evidx)} ev {event}...")
-        points = clusters[clusters[field] == event][:maxnumevents]
+        if isinstance(field,str):
+            points = clusters[clusters[field] == event][:maxnumevents]
+        else:
+            points = clusters[clusters[:,field] == event][:maxnumevents]
         events_used.append(event)
     if printinfo: print(f"total {points.size} points")
     return (points, events_used)
 
-# graph fV.fY,....
 def graph_clusters(clusters, event_idxs, width, height, cylinder, field_idx=2):
     events = np.unique(clusters["event"])
     numevents = len(events)
@@ -156,7 +199,7 @@ def graph_clusters(clusters, event_idxs, width, height, cylinder, field_idx=2):
     layout = defaultLayout(axislabels)
     layout.width = width; layout.height = height
     fig = go.Figure(layout=layout)
-    if cylinder: addCylindersToFig(fig)
+    addBoundaries(fig, cylinder)
     if not len(event_idxs):
         event_idxs = np.random.randint(0,numevents,(10))
     for fId in fIds: print(fId,max(clusters[fId]))
@@ -165,7 +208,7 @@ def graph_clusters(clusters, event_idxs, width, height, cylinder, field_idx=2):
         event = events[idx]
         points = clusters[clusters["event"] == event]
         print(f"{Ith(idx)} event {event} has {len(points)} points")
-        X = points["fV.fX"]; Y = points["fV.fY"]; Z = points["fV.fZ"]
+        X = points[axislabels[0]]; Y = points[axislabels[1]]; Z = points[axislabels[2]]
         # color based on fId
         colors = [event_colors[x % len(event_colors)] for x in points[fIds[field_idx]]]
         labels = np.array([retLabel(pt) for pt in points])
@@ -176,7 +219,6 @@ def graph_clusters(clusters, event_idxs, width, height, cylinder, field_idx=2):
                                         ['x: %{x:.2f}','y: %{y:.2f}','z: %{z:.2f}','%{customdata}'])
                                     ))
     fig.show()
-
 
 def graphID(clusters, event_idxs, field_idx, groupwidth, width, height, cylinder):
     ''' field_idx between 0 and 2 for clusters '''
@@ -190,28 +232,23 @@ def graphID(clusters, event_idxs, field_idx, groupwidth, width, height, cylinder
     layout.title=field+": "+', '.join([str(ev) for ev in events_used])
     layout.width = width; layout.height = height
     fig = go.Figure(layout=layout)
-    if cylinder: 
-        print('adding cylinders...')
-        print(width,height)
-        addCylindersToFig(fig)
+    addBoundaries(fig, cylinder)
     unique_fields = np.unique(points[field])
     cmin = min(unique_fields); cmax = max(unique_fields)
-    # graph colors
-    #event_colors = ['#' + c for c in hexcolors]
+    if cmin == -3141593:
+        points[points[field] == -3141593][field] = -3
     Ncolors = len(unique_fields)
-    #colorspace = nRGBsFromPoints(turbo_points, Ncolors)
-    #colorspace = nRGBsFromPoints(viridis_points, Ncolors)
     if groupwidth < 10: groupwidth = 10
     if field_idx != 2: groupwidth = 1
-    # reduce lag for all the damn traces
     for i in range(0,Ncolors,groupwidth):
         fieldidxs = range(i,min(i+groupwidth,Ncolors))
         pts, fields_used = getFieldPoints(points, field, fieldidxs, printinfo=0)
         labels = np.array([retLabel(pt) for pt in pts])
-        X = pts["fV.fX"]; Y = pts["fV.fY"]; Z = pts["fV.fZ"]
-        #color = event_colors[i % len(event_colors)]
-        #color = colorspace[i]
-        trace = go.Scatter3d(x=X, y=Y, z=Z,mode='markers',name=field+":"+str(min(fields_used))+"-"+str(max(fields_used)),
+        X = pts[axislabels[0]]; Y = pts[axislabels[1]]; Z = pts[axislabels[2]]
+        name = field
+        if groupwidth > 1:
+            name += f":{len(pts)}:{min(fields_used)}-{max(fields_used)}"
+        trace = go.Scatter3d(x=X, y=Y, z=Z,mode='markers',name=name,
                             marker=dict(size=4,cmin=cmin,cmax=cmax,color=pts[field],colorscale="Turbo_r",opacity=0.8),
                             customdata=labels,
                             hovertemplate='<br>'.join(
@@ -219,6 +256,44 @@ def graphID(clusters, event_idxs, field_idx, groupwidth, width, height, cylinder
                             )
         fig.add_trace(trace)
     fig.show()
+
+def graphCylindricalPoints(clusters, labelidx, markersize=4, width=1500, height=1000, cylinder=False):
+    """graph points from clusters w/ entries as (radius, theta, z, sector, label, fSubdetId)"""
+    axislabels = ["fV.fX","fV.fY","fV.fZ"]
+    layout = defaultLayout(axislabels)
+    layout.width = width; layout.height = height
+    fig = go.Figure(layout=layout)
+    addBoundaries(fig, cylinder)
+    unique_labels = np.unique(clusters[:,labelidx])
+    cmin = min(unique_labels); cmax = max(unique_labels)
+    n_unique = unique_labels.size
+    groupwidth = 100 if n_unique > 1000 else 1
+    for i in range(0,n_unique,groupwidth):
+        fieldidxs = range(i,min(i+groupwidth,n_unique))
+        points, fields_used = getFieldPoints(clusters, labelidx, fieldidxs, printinfo=2)
+        if groupwidth > 1:  # for fSubDetID
+            name = f"{len(points)}:{int(min(fields_used))}-{int(max(fields_used))}"
+        else:
+            name=f"{int(fields_used[0])}: {len(points)}"
+        if not points.size: continue
+        # convert from cylindrical to cartesian coordinates
+        X = points[:,0]*np.cos(points[:,1])
+        Y = points[:,0]*np.sin(points[:,1])
+        Z = points[:,2]
+        possible_label_idxs = [3,4,5]
+        possible_label_idxs.remove(labelidx)
+        colors = points[:,labelidx]
+        ids = [', '.join([str(int(pt[ij])) for ij in possible_label_idxs]) for pt in points]
+        trace = go.Scatter3d(x=X, y=Y, z=Z,mode='markers',name=name,
+                            marker=dict(size=markersize,cmin=cmin,cmax=cmax,color=colors,colorscale="Turbo_r",opacity=0.8),
+                            customdata=ids,
+                            hovertemplate='<br>'.join(
+                                ['x: %{x:.2f}','y: %{y:.2f}','z: %{z:.2f}','id: %{customdata}'])
+                            )
+        fig.add_trace(trace)
+    fig.show()
+
+
 
 def graph_tracks(tracks):
     # go, how do you construct a line tho???

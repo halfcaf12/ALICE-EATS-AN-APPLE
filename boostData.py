@@ -4,7 +4,7 @@ import numpy as np
 import os, sys, time
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
-from visualizeData import loadFromNPZ
+from visualizeData import loadFromNPZ, graphCylindricalPoints, getFieldPoints
 import argparse
 from typing import Dict
 
@@ -53,49 +53,53 @@ events_increasing_size = [148, 530, 90, 568, 569, 561, 676, 25, 20, 606, 577, 57
                           432, 493, 384, 553, 274, 84, 477, 386, 221, 303, 296, 668, 618, 0, 216, 535, 466, 82, 572, 
                           209, 625, 323, 489, 337, 399, 378, 319, 234, 4, 262, 197, 292, 350, 140, 159, 211, 308, 
                           24, 60, 179, 141, 286, 109, 268, 194, 174, 105, 85, 265, 282, 118, 21, 147, 235, 236]
-eventidx = 0
-points = clusters[clusters["event"] == events[eventidx]]
+eventidxs = range(0,5)
+points, events_used = getFieldPoints(clusters, "event", eventidxs, maxnumevents = 10000, printinfo=2)
 
 # ----- WE GOING CYLINDRICAL IN THIS BIH ------ #
-# care about x-y points
-# want to model 
-# y axis is lined up with theta=0 actually
-T = np.mod(np.arctan(points["fV.fY"]/points["fV.fX"])+np.pi/2, 2*np.pi)
-R = np.sqrt(points["fV.fY"]**2 + points["fV.fX"]**2)
-Z = points["fV.fZ"]
-coords = np.vstack((T,R,Z),axis=-1)
-
-#TODO: split inner points via ring...
-#TODO: 6 inner rings of fDetId==0
-# RELABEL fSubdetId
-# relabel to 0,1,2,3,4,5
-# 2 rings of fDetId==1, 
-# relabel to 10,11
-# 1 ring of fDetId==2, fLabel[3]>0 indicates energy level??
-# 1 ring of fDetId==3
-fIds = ("fDetId","fSubdetId","fLabel[3]")
-
-def eighteenOGonLabel(XY,Z):
+def eighteenOGonLabels(R,T):
     ''' inputs: XY is dim (size,2), Z is dim (size) for labels '''
+    assert(T.size == R.size)
+    Rs = [0,5,10,17,35,40,80,134,250,292.5,375,450] # last is j super big
+    labels = np.empty(T.size)
+    layers = np.empty(T.size)
     angle = 2*np.pi/18
-    
-Z = points["fDetId"]
+    for r in range(len(Rs)-1):  # bound radius
+        layer_mask = R > Rs[r]
+        layer_mask = np.logical_and(layer_mask, R < Rs[r+1])
+        for t in range(18):     # bound angle
+            angle_mask = T > t*angle
+            angle_mask = np.logical_and(angle_mask, T < (t+1)*angle)
+            mask = np.logical_and(angle_mask, layer_mask)
+            label = t + r*18
+            labels[mask] = label
+        layers[layer_mask] = r
+    return labels, layers
 
-# 18 ring sections
-#half angle point 
-radius1 = (131.75 + 135.12)/2
-radius1 = 85.21
-pt1 = np.array((13.38,85.14))
-pt2 = np.array((16.86,84.58))
-midpt = (pt1+pt2)/2
+R = np.sqrt(points["fV.fY"]**2 + points["fV.fX"]**2)
+Xs = np.where(points["fV.fX"], points["fV.fX"], 1e-32)  # dont divide by zero
+arctans = np.arctan(points["fV.fY"]/Xs)
+# transcribe arctan to actual angles
+T0 = np.where(points["fV.fY"] > 0, np.where(Xs > 0, arctans, arctans+np.pi), np.where(Xs > 0, 2*np.pi + arctans, arctans + np.pi))
+T = T0
+Z = points["fV.fZ"]
+labels, layers = eighteenOGonLabels(R,T)
+subid = points["fSubdetId"]
+# ---- FORMAT: cylindrical coordinates, sector, ring, fSubdetId ---- #
+coords = np.stack((R,T,Z,labels,layers,subid),axis=-1)
 
-hypotenuse = np.linalg.norm(midpt)
-halfangle = np.arccos(radius1/hypotenuse)
-print(radius1, hypotenuse, halfangle*2, 2*np.pi/18)
-    
+idx = 4
+print(coords[:10,idx],coords[-10:,idx])
+graphCylindricalPoints(coords, idx, markersize=2)
 
-train, valid, test = train_valid_test(data, 0.125, 0.125, random_state)
+train, valid, test = train_valid_test(coords, 0.125, 0.125, random_state)
 
+X_train = train[:,:3]
+X_valid = valid[:,:3]
+X_test  = test[:,:3]
+Y_train = train[:,3]
+Y_valid = valid[:,3]
+Y_test  = test[:,3]
 
 sys.exit()
 
