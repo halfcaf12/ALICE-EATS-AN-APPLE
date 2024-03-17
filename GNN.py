@@ -1,7 +1,9 @@
 import sys
 import keras
-import tensorflow
+import tensorflow as tf
+import tensorflow_gnn as tfgnn
 from visualizeData import loadFromNPZ
+
 
 clusters = loadFromNPZ("../clusters")
 

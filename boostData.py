@@ -39,9 +39,13 @@ events = np.unique(clusters["event"])
 eventidx = 0
 points = clusters[clusters["event"] == events[eventidx]]
 
+# ----- WE GOING CYLINDRICAL IN THIS BIH ------ #
 # care about x-y points
 # want to model 
-XY = np.stack((points["fV.fX"],points["fV.fY"]),axis=-1)
+T = np.arctan(points["fV.fY"]/points["fV.fX"])
+R = np.sqrt(points["fV.fY"]**2 + points["fV.fX"]**2)
+Z = points["fV.fZ"]
+coords = np.vstack((T,R,Z),axis=-1)
 train, valid, test = train_valid_test(XY, 0.125, 0.125, random_state)
 
 #TODO: split inner points via ring...
@@ -62,11 +66,17 @@ radius1 = 85.21
 pt1 = np.array((13.38,85.14))
 pt2 = np.array((16.86,84.58))
 midpt = (pt1+pt2)/2
-print(midpt)
+
+hypotenuse = np.linalg.norm(midpt)
+halfangle = np.arccos(radius1/hypotenuse)
+print(radius1, hypotenuse, halfangle*2, 2*np.pi/18)
+
 def eighteenOGonLabel(XY,Z):
     ''' inputs: XY is dim (size,2), Z is dim (size) for labels '''
     angle = 2*np.pi/18
-    np.arctan()
+    thetas = np.arctan(XY[:,1] / XY[:,0])
+
+
 
 
 sys.exit()

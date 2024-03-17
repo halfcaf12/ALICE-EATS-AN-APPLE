@@ -59,54 +59,19 @@ def timeIt(func):
     return wrapper
 Ith = lambda i: str(i) + ("th" if (abs(i) % 100 in (11,12,13)) else ["th","st","nd","rd","th","th","th","th","th","th"][abs(i) % 10])
 
-# copied from some other thing, if we want to make a 3D graph of clusters
-def graph_3d(min_X, model, coeffs, x_res=10, amps_arnd_center=1.5, x_dim=3):
-    model_X = []
-    for i in range(x_dim):
-        c = min_X[i]
-        model_X.append(np.linspace(c-amps_arnd_center, c+amps_arnd_center, x_res))
-    # make 3D figures around center
-    for i in range(x_dim):
-        lbllst = ["X Current (A)","Y Current (A)","Z Current (A)"]
-        # get this iteration of (x, y) at fixed z
-        model_lst = [model_X[(i+j)%x_dim] for j in range(1,x_dim)]
-        Xs = np.array(np.meshgrid(*model_lst, indexing='ij')).T.reshape(-1,x_dim-1)
-        xx = Xs[:,0]
-        yy = Xs[:,1]
-        zz = np.repeat([min_X[i]],len(xx))
-        ordered = [xx, yy, zz]
-        # restore actual order to the model to get Y
-        XX = (ordered[(2-i)%3], ordered[(-i) % 3], ordered[(1-i)%3])
-        YY = model(XX, *coeffs)
-        # plot the model
-        scatter = go.Scatter3d(
-            x=xx, y=yy, z=YY, mode='markers', name='model',
-            marker=dict(
-                size=6,
-                color=-YY,                # set color to an array/list of desired values
-                colorscale='Viridis',   # choose a colorscale
-                opacity=0.5
-            )
-        )
-        surface = go.Surface(x=xx, y=yy, z=YY, opacity=0.8,
-                             contours = {"x": {"show": True, "start": 1.5, "end": 2, "size": 0.04, "color":"white"},
-                                         "y": {"show": True, "start": 0.5, "end": 0.8, "size": 0.05},
-                                         "z": {"show": True, "usecolormap": True, "highlightcolor": "limegreen", "project_z": True}
-                                        }
-                            )
-        x_lbl = lbllst[(i+1)%3]; y_lbl = lbllst[(i+2)%3]
-        layout = go.Layout(title=f"Transition Frequency vs. Induced Current in {x_lbl[0]}-{y_lbl[0]}",
-            margin=dict(l=0, r=0, b=20, t=50), # tight layout
-            width=500, height=500,
-            #contours_z=dict(show=True, usecolormap=True, highlightcolor="limegreen", project_z=True),
-            scene=dict(
-                xaxis=dict(showbackground=False, title=x_lbl, showspikes=False),
-                yaxis=dict(showbackground=False, title=y_lbl,showspikes=False ),
-                zaxis=dict(showbackground=True,title='Frequency (MHz)',gridcolor='rgb(255, 255, 255)',zerolinecolor='rgb(255, 255, 255)',backgroundcolor='rgb(230, 230,230)' )
-            ))
-        data = [scatter]
-        fig = go.Figure(data=data, layout=layout)
-        fig.show()
+# graph cylinders in plotly
+def cylinder(r, h, a=0, nt=100, nz=50, color='blue', opacity=0.1):
+    """
+    parametrized cylinder w radius r, height h, base z a, number of theta points nt, number of z points nz
+    """
+    theta = np.linspace(0, 2*np.pi, nt)
+    z = np.linspace(a, a+h, nz )
+    theta, z = np.meshgrid(theta, z)
+    x = r*np.cos(theta)
+    y = r*np.sin(theta)
+    cylinder = go.Surface(x=x, y=y, z=z,colorscale = [[0, color],[1, color]],
+                          showscale=False, opacity=opacity, showlegend=False)
+    return cylinder
 
 defaultLayout = lambda axislabels: go.Layout(
         title=f"Clusters",
