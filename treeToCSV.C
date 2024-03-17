@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
 #include <dirent.h>
@@ -27,7 +28,12 @@ dir/roots/ to get the root files
 storeCSV assumes existence of csvs/Clusters and csvs/RecTracks 
 storeTree assumes existence of roots/Clusters and roots/RecTracks
 */
-const char* DIRNAME = "/Users/benkroul/Documents/CS/final_229/";
+// const char* DIRNAME = "/Users/benkroul/Documents/CS/final_229/";
+char DIRNAME[100];
+if ( getcwd(DIRNAME, sizeof(DIRNAME)) == NULL ) {
+   printf("getcwd() error");
+   return 1;
+}
 
 /* return all filepaths in directory. POINTER MUST BE FREED AFTERWARDS */
 char** filenamesFromDir(const char* dir_path, const char* ending) {
@@ -228,7 +234,8 @@ void treeToCSV() {
    // toggle storing singular .roots, storing csvs
    bool makeRoots = false;
    bool makeCSVs  = true;
-   // serach for filenames in DIRNAME that end with .root
+   bool printLeaves = true;
+   // search for filenames in DIRNAME that end with .root
    const char* ending = ".root";
    int len = strlen(DIRNAME)+6;
    char rootpath[len];

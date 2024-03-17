@@ -1,6 +1,10 @@
 import sys
 import keras
 import tensorflow
+from visualizeData import loadFromNPZ
+
+clusters = loadFromNPZ("../clusters")
+
 
 inputs = keras.Input(shape=(37,))
 x = keras.layers.Dense(32, activation="relu")(inputs)
