@@ -60,10 +60,11 @@ points, events_used = getFieldPoints(clusters, "event", eventidxs, maxnumevents 
 def eighteenOGonLabels(R,T):
     ''' inputs: XY is dim (size,2), Z is dim (size) for labels '''
     assert(T.size == R.size)
-    Rs = [0,5,10,17,35,40,80,134,250,292.5,375,450] # last is j super big
+    Rs = [0,5,10,17,35,40,45,80,134,250,292.5,375,450] # last is j super big
     labels = np.empty(T.size)
     layers = np.empty(T.size)
     angle = 2*np.pi/18
+    rlabel = 0
     for r in range(len(Rs)-1):  # bound radius
         layer_mask = R > Rs[r]
         layer_mask = np.logical_and(layer_mask, R < Rs[r+1])
@@ -71,9 +72,12 @@ def eighteenOGonLabels(R,T):
             angle_mask = T > t*angle
             angle_mask = np.logical_and(angle_mask, T < (t+1)*angle)
             mask = np.logical_and(angle_mask, layer_mask)
-            label = t + r*18
-            labels[mask] = label
-        layers[layer_mask] = r
+            labels[mask] = t + rlabel*18
+        layers[layer_mask] = rlabel
+        if not layers[layer_mask].size:
+            print("layer",r,"is empty!")
+        else:
+            rlabel += 1
     return labels, layers
 
 R = np.sqrt(points["fV.fY"]**2 + points["fV.fX"]**2)
@@ -86,6 +90,7 @@ Z = points["fV.fZ"]
 labels, layers = eighteenOGonLabels(R,T)
 subid = points["fSubdetId"]
 # ---- FORMAT: cylindrical coordinates, sector, ring, fSubdetId ---- #
+fIds = ("Sector","Ring","fSubdetId")
 coords = np.stack((R,T,Z,labels,layers,subid),axis=-1)
 
 idx = 4
@@ -97,9 +102,10 @@ train, valid, test = train_valid_test(coords, 0.125, 0.125, random_state)
 X_train = train[:,:3]
 X_valid = valid[:,:3]
 X_test  = test[:,:3]
-Y_train = train[:,3]
-Y_valid = valid[:,3]
-Y_test  = test[:,3]
+Y_train = train[:,idx]
+Y_valid = valid[:,idx]
+Y_test  = test[:,idx]
+
 
 sys.exit()
 

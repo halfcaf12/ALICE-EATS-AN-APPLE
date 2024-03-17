@@ -100,7 +100,7 @@ def addBoundaries(fig: go.Figure, make_cylinders=False):
     opacity = 0.1; linewidth = 3
     z_offset = -400
     colors = ['blue','red','purple']
-    for r in (5,10,17,35,40):  # close
+    for r in (5,10,17,35,40,45):  # close
         if make_cylinders: fig.add_trace(goCylinder(r, -z_offset*2, z_offset, 18, 2, colors[1], opacity))
         fig.add_trace(goCircle(r, z_offset, 18, colors[1], linewidth))
     fig.add_trace(goLines((1,45), z_offset, 18, colors[1], linewidth))
