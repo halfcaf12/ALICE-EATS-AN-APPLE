@@ -1,4 +1,5 @@
 # ALICE-EATS-AN-APPLE
+**ALICE E***xperiment and ***T***estbed ***S***imulation: **A N**ovel **A**lgorithmic **P**article **P**hysics **L**earning **E**xperiment*
 GNNs for HEP Particle Tracking
 
 
