@@ -1,7 +1,8 @@
-import xgboost as xgb
+#import xgboost as xgb
 import scipy as sp
 import numpy as np
 import os, sys, time
+import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from visualizeData import loadFromNPZ
 import argparse
@@ -12,7 +13,6 @@ def fit_and_score(estimator, X_train, X_test, y_train, y_test):
     estimator.fit(X_train, y_train, eval_set=[(X_test, y_test)])
     train_score = estimator.score(X_train, y_train)
     test_score = estimator.score(X_test, y_test)
-
     return estimator, train_score, test_score
 
 def train_valid_test(arr: np.ndarray, test_percentage, valid_percentage=0.0, random_state=None):
@@ -43,9 +43,28 @@ points = clusters[clusters["event"] == events[eventidx]]
 # want to model 
 XY = np.stack((points["fV.fX"],points["fV.fY"]),axis=-1)
 train, valid, test = train_valid_test(XY, 0.125, 0.125, random_state)
-Z = points["f"]
 
+#TODO: split inner points via ring...
+#TODO: 6 inner rings of fDetId==0
+# RELABEL fSubdetId
+# relabel to 0,1,2,3,4,5
+# 2 rings of fDetId==1, 
+# relabel to 10,11
+# 1 ring of fDetId==2, fLabel[3]>0 indicates energy level??
+# 1 ring of fDetId==3
+fIds = ("fDetId","fSubdetId","fLabel[3]")
+Z = points["fDetId"]
 
+# 18 ring sections
+#half angle point 
+radius1 = (131.75 + 135.12)/2
+radius1 = 85.21
+pt1 = np.array((13.38,85.14))
+pt2 = np.array((16.86,84.58))
+midpt = (pt1+pt2)/2
+print(midpt)
+
+sys.exit()
 
 
 param_linear = {
@@ -62,6 +81,10 @@ param_tree = [
     ("eval_metric", "error"),
 ]
 
+
+# verbosity 0 (silent), 1 (warning), 2 (info), and 3 (debug)
+# use_rmm uses RAPIDS Memory Manager (RMM) to allocate GPU memory
+xgb.config_context(verbosity=2,use_rmm=False)
 watchlist = [(test, "eval"), (train, "train")]
 num_round = 4
 bst = xgb.train(param_tree, train, num_round, watchlist)
@@ -69,6 +92,7 @@ preds = bst.predict(test)
 labels = test.get_label()
 
 clf = xgb.XGBClassifier(tree_method="hist", early_stopping_rounds=3)
+
 
 results = {}
 
@@ -160,8 +184,6 @@ def quantile_loss(args: argparse.Namespace) -> None:
     y_pred = booster.inplace_predict(xx)
 
     if args.plot:
-        from matplotlib import pyplot as plt
-
         fig = plt.figure(figsize=(10, 10))
         plt.plot(xx, f(xx), "g:", linewidth=3, label=r"$f(x) = x\,\sin(x)$")
         plt.plot(X_test, y_test, "b.", markersize=10, label="Test observations")
