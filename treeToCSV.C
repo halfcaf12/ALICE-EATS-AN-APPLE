@@ -1,7 +1,7 @@
 #include <stdio.h>
-#include <unistd.h>
-#include <string.h>
-#include <stdlib.h>
+#include <unistd.h> // getcwd
+#include <string.h> // string functionality
+#include <stdlib.h> // heap
 #include <dirent.h>
 #include <iostream>
 #include <fstream>
@@ -32,7 +32,7 @@ storeTree assumes existence of roots/Clusters and roots/RecTracks
 char DIRNAME[100];
 if ( getcwd(DIRNAME, sizeof(DIRNAME)) == NULL ) {
    printf("getcwd() error");
-   return 1;
+   exit(1);
 }
 
 /* return all filepaths in directory. POINTER MUST BE FREED AFTERWARDS */

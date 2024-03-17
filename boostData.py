@@ -63,6 +63,11 @@ pt1 = np.array((13.38,85.14))
 pt2 = np.array((16.86,84.58))
 midpt = (pt1+pt2)/2
 print(midpt)
+def eighteenOGonLabel(XY,Z):
+    ''' inputs: XY is dim (size,2), Z is dim (size) for labels '''
+    angle = 2*np.pi/18
+    np.arctan()
+
 
 sys.exit()
 

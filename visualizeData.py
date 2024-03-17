@@ -146,7 +146,8 @@ def getFieldPoints(clusters: np.ndarray, field: str, idxs: list[int], maxnumeven
     '''
     events = np.unique(clusters[field])
     if not len(idxs):  # maximize number of events possible
-        idxs = np.random.shuffle(np.linspace(0,len(events),len(events)))
+        idxs = np.linspace(0,events.shape[0],events.shape[0],endpoint=False,dtype=int)
+        np.random.shuffle(idxs)
     points = False
     events_used = []
     for evidx in idxs:
@@ -215,9 +216,10 @@ def graphID(clusters, event_idxs, field_idx, groupwidth):
     # graph colors
     #event_colors = ['#' + c for c in hexcolors]
     Ncolors = len(unique_fields)
-    colorspace = nRGBsFromPoints(turbo_points, Ncolors)
+    #colorspace = nRGBsFromPoints(turbo_points, Ncolors)
     #colorspace = nRGBsFromPoints(viridis_points, Ncolors)
     if groupwidth < 10: groupwidth = 10
+    if field_idx != 2: groupwidth = 1
     # reduce lag for all the damn traces
     for i in range(0,Ncolors,groupwidth):
         fieldidxs = range(i,min(i+groupwidth,Ncolors))
@@ -255,14 +257,28 @@ def main(config):
     if config.datainfo:
         events = np.unique(tracks["event"])
         evsizes = [tracks[tracks["event"] == event].size for event in events]
-        print(np.mean(evsizes), np.std(evsizes), np.min(evsizes), np.max(evsizes))
+        print("\tavg: %.3f std: %.3f min: %d max: %d" % (
+            np.mean(evsizes), np.std(evsizes), np.min(evsizes), np.max(evsizes)))
 
     clusters = loadFromNPZ("../clusters")
     print(f"loaded {clusters.size} clusters with fields {clusters.dtype.names}")
     if config.datainfo:
         events = np.unique(clusters["event"])
-        evsizes2 = [clusters[clusters["event"] == event].size for event in events]
-        print(np.mean(evsizes2), np.std(evsizes2), np.min(evsizes2), np.max(evsizes2))
+        evsizes2 = np.array([[clusters[clusters["event"] == events[i]].size, events[i], i] for i in range(len(events))])
+        evsizes2 = evsizes2[evsizes2[:,0].argsort()]
+        # print largest event things
+        num_extrema_to_show = 10
+        print("size statistics:")
+        print("\tavg: %d std: %d min: %d max: %d" % (
+            np.mean(evsizes2[:,0]), np.std(evsizes2[:,0]), np.min(evsizes2[:,0]), np.max(evsizes2[:,0])))
+        print("least # clusters:")
+        for i in range(num_extrema_to_show):
+            small = evsizes2[i]
+            print(f"\t{Ith(small[2])} event #{small[1]} has {small[0]} clusters")
+        print("least # clusters:")
+        for i in range(num_extrema_to_show):
+            large = evsizes2[-i-1]
+            print(f"\t{Ith(large[2])} event #{large[1]} has {large[0]} clusters")
 
     config.evs1.extend(config.evs2)
     ev_idxs = [int(i) for i in config.evs1]
@@ -270,9 +286,11 @@ def main(config):
         print("making clusters")
         graph_clusters(clusters, ev_idxs, config.fieldidx)
     else:
-        print("making ID graphs",ev_idxs)
+        print("making ID graphs for events",', '.join(ev_idxs))
         graphID(clusters, ev_idxs, config.fieldidx, config.groupwidth)
 
+# largest events: 124,123,101,20,95,132,128,71,86,107   all greater than 1M
+# smallest events: 102,197,75,226,227,220,313,22,19,255  all less than 6k
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -284,7 +302,7 @@ if __name__ == "__main__":
                         help="Graph 10 random clusters or those labeled in events tag")
     parser.add_argument("--field", dest="fieldidx", default=2, type=int,
                         help="List of events to plot in clusters. Default is 10 random ones")
-    parser.add_argument("--info", dest='datainfo',default=False,action='store_true',
+    parser.add_argument("--info", dest='datainfo', default=False, action='store_true',
                         help="Show mean,stddev,min,max number of tracks, clusters in data")
     parser.add_argument("--gw", dest='groupwidth',default=100,type=int,
                         help="width of group for plotting IDs. smallest is 5")
