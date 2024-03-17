@@ -36,17 +36,34 @@ np.random.seed(random_state)
 clusters = loadFromNPZ("../clusters")
 events = np.unique(clusters["event"])
 # maybe later filter by events??
+events_increasing_size = [148, 530, 90, 568, 569, 561, 676, 25, 20, 606, 577, 579, 115, 620, 73, 583, 501, 675, 
+                          517, 10, 507, 640, 616, 67, 644, 92, 612, 503, 509, 98, 596, 601, 499, 599, 651, 627, 
+                          672, 545, 663, 37, 531, 474, 622, 547, 526, 14, 516, 45, 633, 653, 562, 652, 27, 108, 
+                          623, 657, 59, 563, 42, 72, 53, 532, 512, 152, 505, 61, 588, 100, 39, 578, 589, 536, 112, 
+                          26, 626, 47, 542, 555, 210, 641, 126, 654, 525, 574, 619, 680, 673, 590, 678, 89, 68, 
+                          213, 634, 261, 551, 77, 557, 677, 510, 9, 635, 2, 566, 564, 550, 522, 661, 54, 95, 584, 
+                          670, 70, 107, 600, 639, 65, 597, 581, 475, 617, 567, 50, 43, 32, 506, 97, 607, 502, 8, 
+                          614, 71, 149, 81, 225, 76, 624, 660, 615, 34, 481, 575, 17, 548, 63, 31, 647, 658, 62, 
+                          637, 508, 645, 605, 66, 570, 16, 593, 576, 648, 74, 610, 674, 80, 587, 36, 87, 56, 104, 
+                          611, 78, 411, 422, 64, 485, 94, 669, 111, 185, 29, 450, 7, 642, 649, 537, 631, 656, 543, 
+                          135, 198, 101, 33, 99, 665, 250, 582, 500, 636, 1, 487, 44, 15, 357, 498, 613, 538, 3, 679, 
+                          540, 18, 113, 28, 6, 655, 351, 594, 529, 621, 592, 533, 524, 585, 424, 19, 527, 671, 349, 
+                          49, 513, 48, 188, 549, 57, 598, 343, 377, 11, 110, 13, 630, 363, 88, 103, 309, 650, 229, 
+                          270, 136, 666, 558, 300, 51, 560, 5, 515, 155, 38, 556, 389, 316, 511, 52, 520, 310, 379, 
+                          432, 493, 384, 553, 274, 84, 477, 386, 221, 303, 296, 668, 618, 0, 216, 535, 466, 82, 572, 
+                          209, 625, 323, 489, 337, 399, 378, 319, 234, 4, 262, 197, 292, 350, 140, 159, 211, 308, 
+                          24, 60, 179, 141, 286, 109, 268, 194, 174, 105, 85, 265, 282, 118, 21, 147, 235, 236]
 eventidx = 0
 points = clusters[clusters["event"] == events[eventidx]]
 
 # ----- WE GOING CYLINDRICAL IN THIS BIH ------ #
 # care about x-y points
 # want to model 
-T = np.arctan(points["fV.fY"]/points["fV.fX"])
+# y axis is lined up with theta=0 actually
+T = np.mod(np.arctan(points["fV.fY"]/points["fV.fX"])+np.pi/2, 2*np.pi)
 R = np.sqrt(points["fV.fY"]**2 + points["fV.fX"]**2)
 Z = points["fV.fZ"]
 coords = np.vstack((T,R,Z),axis=-1)
-train, valid, test = train_valid_test(XY, 0.125, 0.125, random_state)
 
 #TODO: split inner points via ring...
 #TODO: 6 inner rings of fDetId==0
@@ -57,6 +74,11 @@ train, valid, test = train_valid_test(XY, 0.125, 0.125, random_state)
 # 1 ring of fDetId==2, fLabel[3]>0 indicates energy level??
 # 1 ring of fDetId==3
 fIds = ("fDetId","fSubdetId","fLabel[3]")
+
+def eighteenOGonLabel(XY,Z):
+    ''' inputs: XY is dim (size,2), Z is dim (size) for labels '''
+    angle = 2*np.pi/18
+    
 Z = points["fDetId"]
 
 # 18 ring sections
@@ -70,13 +92,9 @@ midpt = (pt1+pt2)/2
 hypotenuse = np.linalg.norm(midpt)
 halfangle = np.arccos(radius1/hypotenuse)
 print(radius1, hypotenuse, halfangle*2, 2*np.pi/18)
+    
 
-def eighteenOGonLabel(XY,Z):
-    ''' inputs: XY is dim (size,2), Z is dim (size) for labels '''
-    angle = 2*np.pi/18
-    thetas = np.arctan(XY[:,1] / XY[:,0])
-
-
+train, valid, test = train_valid_test(data, 0.125, 0.125, random_state)
 
 
 sys.exit()
@@ -96,7 +114,7 @@ param_tree = [
     ("eval_metric", "error"),
 ]
 
-
+# for multi-class regression, use multi:softprob
 # verbosity 0 (silent), 1 (warning), 2 (info), and 3 (debug)
 # use_rmm uses RAPIDS Memory Manager (RMM) to allocate GPU memory
 xgb.config_context(verbosity=2,use_rmm=False)

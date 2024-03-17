@@ -60,7 +60,7 @@ def timeIt(func):
 Ith = lambda i: str(i) + ("th" if (abs(i) % 100 in (11,12,13)) else ["th","st","nd","rd","th","th","th","th","th","th"][abs(i) % 10])
 
 # graph cylinders in plotly
-def cylinder(r, h, a=0, nt=100, nz=50, color='blue', opacity=0.1):
+def goCylinder(r, h, a=0, nt=100, nz=50, color='blue', opacity=0.1):
     """
     parametrized cylinder w radius r, height h, base z a, number of theta points nt, number of z points nz
     """
@@ -70,13 +70,21 @@ def cylinder(r, h, a=0, nt=100, nz=50, color='blue', opacity=0.1):
     x = r*np.cos(theta)
     y = r*np.sin(theta)
     cylinder = go.Surface(x=x, y=y, z=z,colorscale = [[0, color],[1, color]],
-                          showscale=False, opacity=opacity, showlegend=False)
+                          showscale=False, opacity=opacity, showlegend=False, hoverinfo='skip')
     return cylinder
+
+def addCylindersToFig(fig: go.Figure):
+    """ plot the boundary cylinders onto a figure """
+    opacity = 0.1
+    middle = [goCylinder(r, 500, -300, 18, 2, 'blue', opacity) for r in (84,133,248)]
+    close = [goCylinder(r, 500, -300, 18, 2, 'red', opacity) for r in (4,7,16,38,43)]
+    far = [goCylinder(r, 500, -300, 18, 2, 'purple', opacity) for r in (292.5,383.15)]
+    fig.add_traces(middle+close+far)
 
 defaultLayout = lambda axislabels: go.Layout(
         title=f"Clusters",
-        margin=dict(l=10, r=10, b=50, t=50), # tight layout
-        width=900, height=900,
+        margin=dict(l=10, r=10, b=50, t=120), # tight layout, give title some room
+        width=1500, height=1000,
         #contours_z=dict(show=True, usecolormap=True, highlightcolor="limegreen", project_z=True),
         scene=dict(
             camera = dict(projection=dict(type = "orthographic")),
@@ -91,7 +99,8 @@ defaultLayout = lambda axislabels: go.Layout(
                 showspikes=False
             ),
             zaxis=dict(
-                showbackground=True,
+                showspikes=False,
+                showbackground=False,
                 title=axislabels[2],
                 gridcolor='rgb(255, 255, 255)',
                 zerolinecolor='rgb(255, 255, 255)',
@@ -128,24 +137,29 @@ def getFieldPoints(clusters: np.ndarray, field: str, idxs: list[int], maxnumeven
             if ev_clusters.size + points.size > MAXEVENTS: continue
             points = np.concatenate((points, ev_clusters))
         events_used.append(event)
+    if isinstance(points, bool):  # all event idxs were too large
+        evidx = idxs[0]
+        event = events[evidx]
+        print(f"using the first {maxnumevents} pts from {Ith(evidx)} ev {event}...")
+        points = clusters[clusters[field] == event][:maxnumevents]
+        events_used.append(event)
     if printinfo: print(f"total {points.size} points")
     return (points, events_used)
 
 # graph fV.fY,....
-def graph_clusters(clusters, event_idxs, field_idx=2):
+def graph_clusters(clusters, event_idxs, width, height, cylinder, field_idx=2):
     events = np.unique(clusters["event"])
     numevents = len(events)
     print(f"there are {numevents} events in clusters")
     axislabels = ["fV.fX","fV.fY","fV.fZ"]
     event_colors = ['#' + c for c in hexcolors]
     layout = defaultLayout(axislabels)
+    layout.width = width; layout.height = height
     fig = go.Figure(layout=layout)
-    
+    if cylinder: addCylindersToFig(fig)
     if not len(event_idxs):
         event_idxs = np.random.randint(0,numevents,(10))
-    i = 0
-    for fId in fIds:
-        print(fId,max(clusters[fId]))
+    for fId in fIds: print(fId,max(clusters[fId]))
     for idx in event_idxs:
         if idx < 0 or idx > numevents: continue
         event = events[idx]
@@ -161,21 +175,25 @@ def graph_clusters(clusters, event_idxs, field_idx=2):
                                     hovertemplate='<br>'.join(
                                         ['x: %{x:.2f}','y: %{y:.2f}','z: %{z:.2f}','%{customdata}'])
                                     ))
-        i += 1
     fig.show()
 
 
-def graphID(clusters, event_idxs, field_idx, groupwidth):
+def graphID(clusters, event_idxs, field_idx, groupwidth, width, height, cylinder):
     ''' field_idx between 0 and 2 for clusters '''
     if field_idx >= len(fIds): field_idx = len(fIds) - 1
     if field_idx < 0: field_idx = 0
     field = fIds[field_idx]
     print(f"graphing fId {field}")
-    points, events_used = getFieldPoints(clusters, "event", event_idxs, printinfo=2)
+    points, events_used = getFieldPoints(clusters, "event", event_idxs, printinfo=0)
     axislabels = ["fV.fX","fV.fY","fV.fZ"]
     layout = defaultLayout(axislabels)
     layout.title=field+": "+', '.join([str(ev) for ev in events_used])
+    layout.width = width; layout.height = height
     fig = go.Figure(layout=layout)
+    if cylinder: 
+        print('adding cylinders...')
+        print(width,height)
+        addCylindersToFig(fig)
     unique_fields = np.unique(points[field])
     cmin = min(unique_fields); cmax = max(unique_fields)
     # graph colors
@@ -188,7 +206,7 @@ def graphID(clusters, event_idxs, field_idx, groupwidth):
     # reduce lag for all the damn traces
     for i in range(0,Ncolors,groupwidth):
         fieldidxs = range(i,min(i+groupwidth,Ncolors))
-        pts, fields_used = getFieldPoints(points, field, fieldidxs, printinfo=1)
+        pts, fields_used = getFieldPoints(points, field, fieldidxs, printinfo=0)
         labels = np.array([retLabel(pt) for pt in pts])
         X = pts["fV.fX"]; Y = pts["fV.fY"]; Z = pts["fV.fZ"]
         #color = event_colors[i % len(event_colors)]
@@ -244,33 +262,54 @@ def main(config):
         for i in range(num_extrema_to_show):
             large = evsizes2[-i-1]
             print(f"\t{Ith(large[2])} event #{large[1]} has {large[0]} clusters")
+        print("events sorted in increasing # of clusters:")
+        print(evsizes2[:,1].tolist())
 
-    config.evs1.extend(config.evs2)
-    ev_idxs = [int(i) for i in config.evs1]
+    # --- plotting criteria
+    cylinder = False; width = 1500; height = 1000
+    ev_idxs = [int(i) for i in config.evs]
+    i = 0
+    while i < len(config.plot):
+        if config.plot[i].startswith('cyl'):
+            cylinder = True
+        elif config.plot[i].startswith('w'):
+            i += 1
+            try:
+                width = int(config.plot[i])
+            except IndexError or ValueError:
+                pass
+        elif config.plot[i].startswith('h'):
+            i += 1
+            try:
+                height = int(config.plot[i])
+            except IndexError or ValueError:
+                pass
+        i += 1
+
     if config.clusters:
         print("making clusters")
-        graph_clusters(clusters, ev_idxs, config.fieldidx)
+        graph_clusters(clusters, ev_idxs, width, height, cylinder, config.fieldidx)
     else:
-        print("making ID graphs for events",', '.join(ev_idxs))
-        graphID(clusters, ev_idxs, config.fieldidx, config.groupwidth)
+        print("making ID graphs for events",', '.join(str(ev) for ev in ev_idxs))
+        graphID(clusters, ev_idxs, config.fieldidx, config.groupwidth, width, height, cylinder)
 
 # largest events: 124,123,101,20,95,132,128,71,86,107   all greater than 1M
 # smallest events: 102,197,75,226,227,220,313,22,19,255  all less than 6k
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--events", dest="evs1", default=[], nargs="+", 
+    parser.add_argument("--events", "--ev", dest="evs", default=[], nargs="+", 
                         help="List of events to plot in clusters. Default is 10 random ones")
-    parser.add_argument("--ev", dest="evs2", default=[], nargs="+", 
-                        help="List of events to plot in clusters. Default is 10 random ones")
-    parser.add_argument("--clusters", dest="clusters", default=False, action='store_true',
+    parser.add_argument("--clusters", "--c", dest="clusters", default=False, action='store_true',
                         help="Graph 10 random clusters or those labeled in events tag")
-    parser.add_argument("--field", dest="fieldidx", default=2, type=int,
-                        help="List of events to plot in clusters. Default is 10 random ones")
+    parser.add_argument("--field", "--f", dest="fieldidx", default=2, type=int,
+                        help="field idx corresponding to (fDetid, fLabel[3], fSubdetid)")
     parser.add_argument("--info", dest='datainfo', default=False, action='store_true',
-                        help="Show mean,stddev,min,max number of tracks, clusters in data")
-    parser.add_argument("--gw", dest='groupwidth',default=100,type=int,
+                        help="show info on distribtuion of # clusters per event")
+    parser.add_argument("--groupwidth", "--gw", dest='groupwidth',default=100,type=int,
                         help="width of group for plotting IDs. smallest is 5")
+    parser.add_argument("--plot", dest='plot',default=[], nargs="+",
+                        help="List of additional plot arguments. 'cylinder' draws boundary cylinders, 'width' and 'height' specify plot dimensions")
     '''
     parser.add_argument("--label", dest="label", default="",
                         help="Label of pkl file (after seed part).") 
