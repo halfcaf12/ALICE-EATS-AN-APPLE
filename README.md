@@ -8,11 +8,11 @@ TODO:
 1. XGBoost + KMeansClustering to identify the 18-sided structures present in data
 1. Generalize `treeToCSV` to any ROOT structure, and use arguments
 
-# Data processing
+## Data processing
 1. ROOT files, stored in `roots/*.root` and scraped from CERN's open data EOS, are converted into CSVs using `root treeToCSV.C` after downloading `root` from https://root.cern/install/. This stores each ROOT tree as a separate csv in `csvs/Clusters/` and `csvs/RecTracks`. 
 1. Convert CSVs to NPZs using `processCSVtoNPZ.py`, which stores `../clusters.npz` and `../tracks.npz`. 
 
-# Data visualization
+## Data visualization
 Assumes that you have your data of the form `../clusters.npz` to store particle clusters.
 run `visualizeData.py --events 0 1 2 3 4` to print the ``fSubdetId'' field of the clusters. This uses plotly in order to plot the clusters and colors them using this field.
 Specifications to `visualizeData` are as follows:
