@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from cycler import cycler
 import argparse
+from fractions import Fraction
 
 # ---- CONSTANTS ---- #
 # IBM's colorblind-friendly colors
@@ -149,6 +150,7 @@ MAXEVENTS = 300000
 def getFieldPoints(clusters: np.ndarray, field: str | int, idxs: list[int], maxnumevents=MAXEVENTS, printinfo=0):
     ''' concatenates [clusters[clusters[field] == thing] where
      - idxs: specifies idxs into np.unique(clusters[field])
+       - if not specified, will fill with as many events up to maxnumevents 
      - printinfo: 0-no info, 1-only size of concatenated, 2-all fields info
      - maxnumevents: maximum number of events to include so plotly doesn't crash 
     '''
@@ -169,13 +171,14 @@ def getFieldPoints(clusters: np.ndarray, field: str | int, idxs: list[int], maxn
         else:
             ev_clusters = clusters[clusters[:,field] == event]
         if printinfo == 2: print(f"{evidx} {field} {event} contains {ev_clusters.size} clusters")
-        if ev_clusters.size > MAXEVENTS:
-            print(f"f {field} ev {event} has {ev_clusters.size} points!")
+        if ev_clusters.size > maxnumevents:
+            if printinfo:
+                print(f"f {field} ev {event} has {ev_clusters.size} points!")
             continue
         if isinstance(points, bool):
             points = ev_clusters
         else:
-            if ev_clusters.size + points.size > MAXEVENTS: continue
+            if ev_clusters.size + points.size > maxnumevents: continue
             points = np.concatenate((points, ev_clusters))
         events_used.append(event)
     if isinstance(points, bool):  # all event idxs were too large
@@ -257,33 +260,40 @@ def graphID(clusters, event_idxs, field_idx, groupwidth, width, height, cylinder
         fig.add_trace(trace)
     fig.show()
 
-def graphCylindricalPoints(clusters, labelidx, markersize=4, width=1500, height=1000, cylinder=False):
-    """graph points from clusters w/ entries as (radius, theta, z, sector, label, fSubdetId)"""
+def graphCylindricalPoints(clusters, labelidx, title="", markersize=4, width=1500, height=1000, cylinder=False):
+    """graph points from clusters w/ entries as (radius, theta, z, sector, label, fSubdetId)
+     - labelidx is 3,4,5
+     - plotly: name, markersize, width, height, cylinder will add cylinder objects
+      - traces are by SECTOR """
     axislabels = ["fV.fX","fV.fY","fV.fZ"]
     layout = defaultLayout(axislabels)
     layout.width = width; layout.height = height
+    layout.title = title
     fig = go.Figure(layout=layout)
     addBoundaries(fig, cylinder)
-    unique_labels = np.unique(clusters[:,labelidx])
-    cmin = min(unique_labels); cmax = max(unique_labels)
-    n_unique = unique_labels.size
-    groupwidth = 100 if n_unique > 1000 else 1
-    for i in range(0,n_unique,groupwidth):
-        fieldidxs = range(i,min(i+groupwidth,n_unique))
-        points, fields_used = getFieldPoints(clusters, labelidx, fieldidxs, printinfo=2)
-        if groupwidth > 1:  # for fSubDetID
-            name = f"{len(points)}:{int(min(fields_used))}-{int(max(fields_used))}"
-        else:
-            name=f"{int(fields_used[0])}: {len(points)}"
-        if not points.size: continue
+    # TRACE BY SECTOR BC THAT IS THE BESSSTTTT
+    labels = np.unique(clusters[:,labelidx])
+    cmin = min(labels); cmax = max(labels)
+    sectors = np.unique(clusters[:,4])
+    for sector in sectors:
+        points = clusters[clusters[:,4] == sector]
+        name=f"Sec {int(sector)}: {len(points)} pts"
         # convert from cylindrical to cartesian coordinates
         X = points[:,0]*np.cos(points[:,1])
         Y = points[:,0]*np.sin(points[:,1])
         Z = points[:,2]
         possible_label_idxs = [3,4,5]
-        possible_label_idxs.remove(labelidx)
+        #possible_label_idxs.remove(labelidx)
         colors = points[:,labelidx]
-        ids = [', '.join([str(int(pt[ij])) for ij in possible_label_idxs]) for pt in points]
+        ids = []
+        for pt in points:
+            id_txt = []
+            for id in pt:
+                if id == int(id):
+                    id_txt.append("%d" % id)
+                else:
+                    id_txt.append("%.23f" % id)
+        ids.append(', '.join(id_txt))
         trace = go.Scatter3d(x=X, y=Y, z=Z,mode='markers',name=name,
                             marker=dict(size=markersize,cmin=cmin,cmax=cmax,color=colors,colorscale="Turbo_r",opacity=0.8),
                             customdata=ids,
@@ -293,6 +303,65 @@ def graphCylindricalPoints(clusters, labelidx, markersize=4, width=1500, height=
         fig.add_trace(trace)
     fig.show()
 
+def plotRTheta(coords, label_idx, title, radius_bounds=(0,0), rticks=[], showplot=True, polar=True):
+    PLOT_SIZE = (10,8)
+    numradialticks = 8  # not including largest radius
+    numthetaticks = 18
+    rticks=[5,10,17,35,40,45,80,134,250,292.5,375,450]
+    
+    rmin = 0
+    if radius_bounds[1]:
+        coords = coords[coords[:,0] < radius_bounds[1]]
+    if radius_bounds[0]:
+        coords = coords[coords[:,0] > radius_bounds[0]]
+        rmin = max(0,min(coords[:,0])-2)
+
+    labels = coords[:,label_idx]
+    R = coords[:,0]; rmax = max(R)
+    T = coords[:,1]
+
+    turbo_map = mpl.colormaps.get_cmap('turbo')
+    fig, ax = plt.subplots(subplot_kw={'projection': 'polar'},figsize=PLOT_SIZE) if polar else plt.subplots(figsize=PLOT_SIZE)
+    sc = ax.scatter(T, R, c=labels, s=5, cmap=turbo_map)
+    
+    # tick that bih
+    if len(rticks):
+        start = 0; end = 0
+        for i in range(len(rticks)):
+            if rticks[i] < rmin:  # start tick after first rmin
+                start += 1
+            if rticks[i] < rmax:
+                end += 1
+        radius_ticks = rticks[start:end]
+    else:
+        radius_ticks = np.linspace(rmin,rmax,numradialticks,endpoint=False)
+    
+    angles = []; anglelabels = []
+    for i in range(numthetaticks):
+        if polar:
+            angles.append(i*360/numthetaticks)
+        else:
+            angles.append(i*2*np.pi/numthetaticks)
+        label = "$"
+        frac = Fraction(i*2/numthetaticks).limit_denominator(numthetaticks)  # in terms of pi
+        if i and i != numthetaticks/2:
+            label += r"\frac{"+str(frac.numerator)+"}{"+str(frac.denominator)+"}"
+        label += r"\pi$"
+        anglelabels.append(label)
+    if polar:
+        ax.set(rmin=rmin, rmax=rmax)
+        ax.set_rgrids(radii=radius_ticks, labels=[""]*len(radius_ticks))
+        ax.set_thetagrids(angles, labels=anglelabels)
+    else:
+        ax.set(ylim=(rmin,rmax), yticks=radius_ticks, xticks=angles, xticklabels=anglelabels)
+    ax.grid(alpha=0.1)
+    ax.set(title=title)
+    plt.colorbar(sc)
+
+    pltname = "plot-"+("polar" if polar else "2d")+"_"+"_".join(title.lower().split(' '))+".pdf"
+    fig.savefig(pltname, bbox_inches="tight")
+    print("Saved figure to "+pltname)
+    if showplot: plt.show()
 
 
 def graph_tracks(tracks):
@@ -322,23 +391,26 @@ def main(config):
     print(f"loaded {clusters.size} clusters with fields {clusters.dtype.names}")
     if config.datainfo:
         events = np.unique(clusters["event"])
-        evsizes2 = np.array([[clusters[clusters["event"] == events[i]].size, events[i], i] for i in range(len(events))])
-        evsizes2 = evsizes2[evsizes2[:,0].argsort()]
+        evsizes2 = np.array([[i, events[i], clusters[clusters["event"] == events[i]].size] for i in range(len(events))])
+        evsizes2 = evsizes2[evsizes2[:,2].argsort()]
         # print largest event things
         num_extrema_to_show = 10
         print("size statistics:")
         print("\tavg: %d std: %d min: %d max: %d" % (
-            np.mean(evsizes2[:,0]), np.std(evsizes2[:,0]), np.min(evsizes2[:,0]), np.max(evsizes2[:,0])))
+            np.mean(evsizes2[:,2]), np.std(evsizes2[:,2]), np.min(evsizes2[:,2]), np.max(evsizes2[:,2])))
         print("least # clusters:")
         for i in range(num_extrema_to_show):
             small = evsizes2[i]
-            print(f"\t{Ith(small[2])} event #{small[1]} has {small[0]} clusters")
+            print(f"\t{Ith(small[0])} event #{small[1]} has {small[2]} clusters")
         print("least # clusters:")
         for i in range(num_extrema_to_show):
             large = evsizes2[-i-1]
-            print(f"\t{Ith(large[2])} event #{large[1]} has {large[0]} clusters")
+            print(f"\t{Ith(large[0])} event #{large[1]} has {large[2]} clusters")
         print("events sorted in increasing # of clusters:")
         print(evsizes2[:,1].tolist())
+        print("event idxs sorted in increasing # of clusters:")
+        print(evsizes2[:,0].tolist())
+        np.savez_compressed("events_increasing_size.npz",evsizes2)
 
     # --- plotting criteria
     cylinder = False; width = 1500; height = 1000

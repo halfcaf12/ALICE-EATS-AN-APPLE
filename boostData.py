@@ -1,12 +1,15 @@
 import xgboost as xgb
-import scipy as sp
+#import scipy as sp
 import numpy as np
-import os, sys, time
+import os, sys
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
-from visualizeData import loadFromNPZ, graphCylindricalPoints, getFieldPoints
+from visualizeData import loadFromNPZ, timeIt
+from visualizeData import graphCylindricalPoints, getFieldPoints, plotRTheta
 import argparse
 from typing import Dict
+
+PLOT_SIZE = (12,6)
 
 def fit_and_score(estimator, X_train, X_test, y_train, y_test):
     """Fit the estimator on the train set and score it on both sets"""
@@ -16,55 +19,59 @@ def fit_and_score(estimator, X_train, X_test, y_train, y_test):
     return estimator, train_score, test_score
 
 def train_valid_test(arr: np.ndarray, test_percentage, valid_percentage=0.0, random_state=None):
-    n = arr.size
+    n = arr.shape[0]
     test_n = int(test_percentage * n)
     valid_n = int(valid_percentage * n)
     train_n = n - test_n - valid_n
     if train_n <= 0:
         print('you have left no space for training!')
         sys.exit()
-    random_indices = np.random.shuffle(np.linspace(0,n,n))
-    shuffle_array = arr[random_indices]
+    indices = np.linspace(0,n,n,dtype=int,endpoint=False)
+    np.random.shuffle(indices)
+    shuffle_array = arr[indices]
     test = shuffle_array[:test_n]
     valid = shuffle_array[test_n:test_n+valid_n]
     train = shuffle_array[test_n+valid_n:]
-    print(train_n,train.size)
-    return train, valid, test
+    print("train:",train_n,train.shape,"valid",valid_n,valid.shape,"test",test_n,test.shape)
+    return (train, valid, test)
 
-random_state = 19
-np.random.seed(random_state)
-clusters = loadFromNPZ("../clusters")
-events = np.unique(clusters["event"])
-# maybe later filter by events??
-events_increasing_size = [148, 530, 90, 568, 569, 561, 676, 25, 20, 606, 577, 579, 115, 620, 73, 583, 501, 675, 
-                          517, 10, 507, 640, 616, 67, 644, 92, 612, 503, 509, 98, 596, 601, 499, 599, 651, 627, 
-                          672, 545, 663, 37, 531, 474, 622, 547, 526, 14, 516, 45, 633, 653, 562, 652, 27, 108, 
-                          623, 657, 59, 563, 42, 72, 53, 532, 512, 152, 505, 61, 588, 100, 39, 578, 589, 536, 112, 
-                          26, 626, 47, 542, 555, 210, 641, 126, 654, 525, 574, 619, 680, 673, 590, 678, 89, 68, 
-                          213, 634, 261, 551, 77, 557, 677, 510, 9, 635, 2, 566, 564, 550, 522, 661, 54, 95, 584, 
-                          670, 70, 107, 600, 639, 65, 597, 581, 475, 617, 567, 50, 43, 32, 506, 97, 607, 502, 8, 
-                          614, 71, 149, 81, 225, 76, 624, 660, 615, 34, 481, 575, 17, 548, 63, 31, 647, 658, 62, 
-                          637, 508, 645, 605, 66, 570, 16, 593, 576, 648, 74, 610, 674, 80, 587, 36, 87, 56, 104, 
-                          611, 78, 411, 422, 64, 485, 94, 669, 111, 185, 29, 450, 7, 642, 649, 537, 631, 656, 543, 
-                          135, 198, 101, 33, 99, 665, 250, 582, 500, 636, 1, 487, 44, 15, 357, 498, 613, 538, 3, 679, 
-                          540, 18, 113, 28, 6, 655, 351, 594, 529, 621, 592, 533, 524, 585, 424, 19, 527, 671, 349, 
-                          49, 513, 48, 188, 549, 57, 598, 343, 377, 11, 110, 13, 630, 363, 88, 103, 309, 650, 229, 
-                          270, 136, 666, 558, 300, 51, 560, 5, 515, 155, 38, 556, 389, 316, 511, 52, 520, 310, 379, 
-                          432, 493, 384, 553, 274, 84, 477, 386, 221, 303, 296, 668, 618, 0, 216, 535, 466, 82, 572, 
-                          209, 625, 323, 489, 337, 399, 378, 319, 234, 4, 262, 197, 292, 350, 140, 159, 211, 308, 
-                          24, 60, 179, 141, 286, 109, 268, 194, 174, 105, 85, 265, 282, 118, 21, 147, 235, 236]
-eventidxs = range(0,5)
-points, events_used = getFieldPoints(clusters, "event", eventidxs, maxnumevents = 10000, printinfo=2)
+def within_eps(act, pred, eps):
+    return np.logical_and(pred <= (act + eps), pred >= (act - eps))
+def outside_eps(act, pred, eps):
+    return np.logical_or(pred > (act + eps), pred < (act - eps))
 
-# ----- WE GOING CYLINDRICAL IN THIS BIH ------ #
+def printAccuracy(actual, predicted, eps=0):  # predicted are floats for fSubdetId
+    """ string of accuracy for each label from int predictions, 3 decimal points after percent """
+    if eps:
+        func = lambda act, pred: within_eps(act, pred, eps)
+    else:
+        func = lambda act, pred: act == pred
+    ret = ["tot:%.3f" % (100*np.sum(func(actual, predicted))/actual.shape[0])]
+    labels = np.unique(actual)
+    for label in labels:
+        indices = actual == label
+        ac = actual[indices]
+        pr = predicted[indices]
+        perc = 100*np.sum(func(ac,pr))/ac.shape[0]
+        if perc:
+            perc = "%.3f" % perc
+            if perc[-3:] == "000":
+                perc = perc[:-4] # exclude decimal
+            ret.append("%d:%s" % (label, perc))
+        else:  # nothing predicted
+            continue
+            ret.append("~%d" % label)
+    return ', '.join(ret)
+
 def eighteenOGonLabels(R,T):
-    ''' inputs: XY is dim (size,2), Z is dim (size) for labels '''
+    ''' inputs: XY is dim (size,2), Z is dim (size) for labels 
+        doesn't label any empty sectors of data '''
     assert(T.size == R.size)
     Rs = [0,5,10,17,35,40,45,80,134,250,292.5,375,450] # last is j super big
-    labels = np.empty(T.size)
-    layers = np.empty(T.size)
+    sectors = np.empty(T.size)
+    rings = np.empty(T.size)
     angle = 2*np.pi/18
-    rlabel = 0
+    rlabel = 0; slabel = 0
     for r in range(len(Rs)-1):  # bound radius
         layer_mask = R > Rs[r]
         layer_mask = np.logical_and(layer_mask, R < Rs[r+1])
@@ -72,122 +79,273 @@ def eighteenOGonLabels(R,T):
             angle_mask = T > t*angle
             angle_mask = np.logical_and(angle_mask, T < (t+1)*angle)
             mask = np.logical_and(angle_mask, layer_mask)
-            labels[mask] = t + rlabel*18
-        layers[layer_mask] = rlabel
-        if not layers[layer_mask].size:
-            print("layer",r,"is empty!")
-        else:
-            rlabel += 1
-    return labels, layers
+            sectors[mask] = slabel
+            if sectors[mask].size:
+                slabel += 1
+        rings[layer_mask] = rlabel
+        if rings[layer_mask].size: rlabel += 1
+    return rings, sectors
 
-R = np.sqrt(points["fV.fY"]**2 + points["fV.fX"]**2)
-Xs = np.where(points["fV.fX"], points["fV.fX"], 1e-32)  # dont divide by zero
-arctans = np.arctan(points["fV.fY"]/Xs)
-# transcribe arctan to actual angles
-T0 = np.where(points["fV.fY"] > 0, np.where(Xs > 0, arctans, arctans+np.pi), np.where(Xs > 0, 2*np.pi + arctans, arctans + np.pi))
-T = T0
-Z = points["fV.fZ"]
-labels, layers = eighteenOGonLabels(R,T)
-subid = points["fSubdetId"]
+# ---- GET AND FORMAT DATA ---- #
+random_state = 19
+np.random.seed(random_state)
+# maybe later filter by events??
+
+# events ordered by size: index of event, event, number of clusters
+events_ordered = loadFromNPZ("events_increasing_size")
+
+print("navigating event orderings, largest to smallest")
+i = events_ordered.shape[0] - 1
+while 1:
+    print(events_ordered[i])
+    t = input("type e to exit:").lower().rstrip()
+    if t == 'e':
+        break
+    i -= 1
+    if i < 0: break
+
 # ---- FORMAT: cylindrical coordinates, sector, ring, fSubdetId ---- #
-fIds = ("Sector","Ring","fSubdetId")
-coords = np.stack((R,T,Z,labels,layers,subid),axis=-1)
+@timeIt
+def getCoords(eventidxs=[], maxnumevents= 10000):
+    clusters = loadFromNPZ("../clusters")
+    #events = np.unique(clusters["event"])
+    points, events_used = getFieldPoints(clusters, "event", eventidxs, maxnumevents, printinfo=0)
+    # ----- WE GOING CYLINDRICAL IN THIS BIH ------ #
+    R = np.sqrt(points["fV.fY"]**2 + points["fV.fX"]**2)
+    Xs = np.where(points["fV.fX"], points["fV.fX"], 1e-32)  # dont divide by zero
+    arctans = np.arctan(points["fV.fY"]/Xs)
+    # transcribe arctan to actual angles
+    T = np.where(points["fV.fY"] > 0, np.where(Xs > 0, arctans, arctans+np.pi), np.where(Xs > 0, 2*np.pi + arctans, arctans + np.pi))
+    Z = points["fV.fZ"]
+    rings, sectors = eighteenOGonLabels(R,T)
+    subid = points["fSubdetId"]
+    # can cast to object type to preserve int-ness of the labels, but 
+    # instead we will just change the types of the labels accordingly 
+    # when we use them later
+    coords = np.stack((R,T,Z,rings,sectors,subid),axis=-1)
+    print("coords have shape",coords.shape,"and of type",coords.dtype)
+    print("\tusing events",', '.join([str(ev) for ev in events_used]))
+    return coords, events_used
 
-idx = 4
-fId = fIds[idx]
-print(coords[:10,idx],coords[-10:,idx])
-graphCylindricalPoints(coords, idx, markersize=2)
+def classifyModel(fieldidx: 0|1|2, x_dim: 1|2|3, tvt_split=0.125, ev_idxs=[], maxnumevents=10000, 
+                  save_model_name="", makePlotly=True, makeLinear=False, showPyplots=False, plotPolar=True):
+    '''
+    - fieldidx indexes whether sector, ring, or fsubdetid are being classified
+    - tvt_split: partitions valid and test sets as tvt_split percentage of data
+    - x_dim is whether to use just r, r + theta, or r + theta + z as input features
+    - makePlotly: whether to graph labels in plotly(recommend). will make pyplot regardless
+    '''
+    if fieldidx < 0 or fieldidx > 2: fieldidx = 0
+    if x_dim < 1: x_dim = 2
+    fieldsMode = x_dim > 2   # predict one field from the other two fields?
 
-train, valid, test = train_valid_test(coords, 0.125, 0.125, random_state)
+    fIds = ("Ring","Sector","fSubdetId")
+    fId = fIds[fieldidx]
+    idx = fieldidx + 3
+    print(f"now classifying {fId}")
+    
+    # assumes you do not specify same event twice
+    ev_idxs_to_make = []; numused = 0  # events_ordered has (index, event, size)
+    for evidx in ev_idxs:
+        i = 0
+        if evidx.isdigit():
+            ev_idxs_to_make.append(int(evidx))
+            for ordered_ev in events_ordered:
+                if ordered_ev[0] == evidx:
+                    numused += ordered_ev[2]
+                    break
+        elif evidx[0] == "l":
+            num_l = 0
+            if len(evidx) > 1:
+                num_l = evidx[1:]
+                if num_l.isdigit():
+                    num_l = int(num_l)
+            for ordered_ev in events_ordered[::-1]:
+                if ordered_ev[2] + numused <= maxnumevents:
+                    if i == num_l:
+                        ev_idxs_to_make.append(ordered_ev[0])
+                        numused += ordered_ev[2]
+                        break
+                    i += 1
+        elif evidx[0] == "s":
+            num_include = 1
+            if len(ev_idxs[0]) > 1:
+                num_include = ev_idxs[0][1:]
+                if num_include.isdigit():
+                    num_include = int(num_include)
+            for ordered_ev in events_ordered:
+                if i >= num_include or ordered_ev[2] + numused >= maxnumevents: break
+                ev_idxs_to_make.append(ordered_ev[0])
+                numused += ordered_ev[2]
+                i += 1
+    print("making events:",ev_idxs_to_make)
+    coords, events_used = getCoords(ev_idxs_to_make, maxnumevents)  # coords: float array, events_used: int list
+    eventnames = ', '.join([str(ev) for ev in events_used])
+    linearstring = ("(Linear) " if makeLinear else "")
+    if makePlotly: graphCylindricalPoints(coords, idx, title="All "+str(coords.shape[0])+" Points: "+eventnames, markersize=6)
+    if x_dim == 2:  # graph R, Theta
+        plotRTheta(coords, idx, "Initial points", radius_bounds=(0,0), showplot=showPyplots, polar=plotPolar)
 
-X_train = train[:,:3]
-X_valid = valid[:,:3]
-X_test  = test[:,:3]
-Y_train = train[:,idx]
-Y_valid = valid[:,idx]
-Y_test  = test[:,idx]
+    X = coords[:,:x_dim]
+    Y = coords[:,idx].astype(int)
 
-X = np.stack((R,T,Z),axis=-1)
-Y = coords[:,idx]
+    print("x shape:",X.shape,"y shape:",Y.shape)
+    train, valid, test = train_valid_test(coords, tvt_split, tvt_split, random_state)
 
-num_labels = np.unique(Y)
+    # predict for field idx from x spatial things
+    X_train = train[:,:x_dim]
+    X_valid = valid[:,:x_dim]
+    X_test  = test[:,:x_dim]
+    Y_train = train[:,idx].astype(int)
+    Y_valid = valid[:,idx].astype(int)
+    Y_test  = test[:,idx].astype(int)
 
-M = xgb.DMatrix(X, Y)
+    print("train",X_train.shape,Y_train.shape)
+    print("valid",X_valid.shape,Y_valid.shape)
+    print("test",X_test.shape,Y_test.shape)
 
-param_linear = {
-    "objective": "multi:softprob",
-    "booster": "gblinear",
-    "alpha": 0.0001,
-    "lambda": 1,
-}
+    kClasses = np.unique(Y).size
 
-# tree with dropouts -- idk why you would use??
-param_dart = {}
+    M = xgb.DMatrix(X, Y)
+    M_train = xgb.DMatrix(X_train, Y_train)
+    M_valid = xgb.DMatrix(X_valid, Y_valid)
 
-# random forest -- again, data has some good structure to it so we don't care
-param_random_forest = {}
+    # -------- PPOTENTIAL TREE PARAMETERS
+    param_linear = {"objective": "multi:softmax", 
+                    "booster": "gblinear",
+                    "alpha": 0.0,   # L1 regular ization
+                    "lambda": 0.001, # L2 regularization
+                    "updater": "shotgun",  # or coord_descent
+                    #"feature_selector": "thrifty",
+                    "num_class": kClasses
+                    }
+    kRounds = 100  # number of rounds to make leaves??? maybe??
+    maxDepth = kClasses
 
-param_tree = {
-    "max_depth": 3,
-    "min_child_weight": 1,
-    "max_leaves": 0,  # no max
-    "max_bin": 256,  # max bins for continuous features
-    "objective": "multi:softprob",  
-    # multi:softmax, #  only outputs one probability of that group, this does prob for all groups, might b interesting
-    #"num_class": num_labels  # for mult:softmax
-    "eval_metric": "mlogloss", # or merror, auc
-    "eval_metric": "merror",
-    "lambda": 0.0001,      # L2 regularization term
-    "tree_method": "hist", #fastest greedy algo
-}
+    param_tree = {
+        "max_depth": maxDepth,
+        "min_child_weight": 0.1,
+        "max_leaves": 0,  # no max
+        "max_bin": 512,  # max bins for continuous features
+        "objective": "multi:softmax",  
+        # multi:softmax, #  only outputs one probability of that group, this does prob for all groups, might b interesting
+        "num_class": kClasses, # for mult-class
+        "eval_metric": "mlogloss", # or merror, auc
+        #"eval_metric": "merror",
+        "lambda": 0.0001,      # L2 regularization term
+        "tree_method": "hist", #fastest greedy algo
+        "min_split_loss": 0,
+        "learning_rate": 0.3,
+    }
+
+    # switch out of multi-class classification for fSubdetId
+    if fieldidx == 2:
+        param_tree["objective"] = "reg:squarederror"
+        param_tree["eval_metric"] = "rmse"
+        del param_tree["num_class"]
+        param_linear["objective"] = "reg:squarederror"
+        del param_linear["num_class"]
+        eps = 5
+    else:
+        eps = 0
+
+    # verbosity 0 (silent), 1 (warning), 2 (info), and 3 (debug)
+    # use_rmm uses RAPIDS Memory Manager (RMM) to allocate GPU memory
+    xgb.config_context(verbosity=2,use_rmm=False)
+    watchlist = [(M_train, "train"),(M_valid, "valid")]
+    # early-stopping rounds determines when validation set has stopped improving
+    @timeIt
+    def trainingXGB(makeLinear):
+        if makeLinear:
+            return xgb.train(param_linear, M_train, kRounds, evals=watchlist, early_stopping_rounds=10)
+        return xgb.train(param_tree, M_train, kRounds, evals=watchlist, early_stopping_rounds=10)
+    
+    bst = trainingXGB(makeLinear)
+    all_pred   = bst.predict(xgb.DMatrix(X), iteration_range=(0, bst.best_iteration + 1))
+    test_pred  = bst.predict(xgb.DMatrix(X_test),  iteration_range=(0, bst.best_iteration + 1))
+    train_pred = bst.predict(xgb.DMatrix(X_train), iteration_range=(0, bst.best_iteration + 1))
+    valid_pred = bst.predict(xgb.DMatrix(X_valid), iteration_range=(0, bst.best_iteration + 1))
+
+    print("accuracies:\n- train; ",printAccuracy(Y_train,train_pred,2),
+          "\n- valid; ",printAccuracy(Y_valid,valid_pred,2),
+          "\n- test; ",printAccuracy(Y_test,test_pred,2))
+
+    all_differences = all_pred - coords[:,idx]
+
+    print(f'avg:{np.mean(all_differences)},std:{np.std(all_differences)},max:{np.max(all_differences)},min:{np.min(all_differences)}')
+    for eps in np.linspace(0.001,10,100):
+        n = np.sum(within_eps(coords[:,idx], all_pred,eps))
+        print("%d within %.3f: %.1f" % (n,eps,100*n/coords.shape[0])+"%")
+
+    if save_model_name:
+        print("saving model...")
+        bst.save_model(save_model_name+".ubj")
+        # dump model and featuremap
+        for ending in ('_raw.txt','_featmap.txt'):
+            save_model_path = save_model_name+ending
+            if not os.path.isfile(save_model_path):
+                f = open(save_model_path, 'w')
+                f.close()
+        #bst.dump_model(save_model_name+'_raw.txt', save_model_name+'_featmap.txt')
+    # can later load model again
+    #bst_new = xgb.Booster({'nthread': 4})  # init model
+    #bst_new.load_model('0001.model')  # load data
+    
+    if not makeLinear and maxnumevents < 100000:
+        fig, axs = plt.subplots(2,1,figsize=(12,8))
+        xgb.plot_importance(bst, ax=axs[0])
+        xgb.plot_tree(bst, num_trees=2, ax=axs[1])
+        fig.savefig("xgb_fig.pdf")
+        if showPyplots: fig.show()
+
+    # ---- PLOT TEST ---- #
+    print("plotting...")
+    plotTestDetail = False
+    if plotTestDetail:
+        new_test = np.copy(test)
+        new_test[:,idx] = test_pred
+    indices = within_eps(coords[:,idx], all_pred, eps)
+    new_all = coords[indices]
+    print("creating to predict...")
+    diffs = all_pred[indices] - new_all[:,idx]
+    mostunder = min(diffs); mostover = max(diffs)
+    print(f"underpredicted by up to {mostunder} & overpredicted up to {mostover}")
+    new_all[:,idx] = diffs
+    if x_dim == 2:  # plot points in R, Theta
+        plotRTheta(new_all, idx, "Predicted Points", radius_bounds=(0,0), showplot=showPyplots, polar=plotPolar)
+        if plotTestDetail:
+            plotRTheta(test, idx, "Test-Real", showplot=showPyplots)
+            plotRTheta(new_test, idx, "Test-Predicted")
+            plotRTheta(new_test, idx, "Test-Predicted Small Radius", radius_bounds=(0,45), showplot=showPyplots, polar=plotPolar)
+            plotRTheta(new_test, idx, "Test-Predicted Large Radius", radius_bounds=(80,0), showplot=showPyplots, polar=plotPolar)
+        else: # detail all points
+            plotRTheta(new_all, idx, "Predicted Small Radius", radius_bounds=(0,45), showplot=showPyplots, polar=plotPolar)
+            plotRTheta(new_all, idx, "Predicted Large Radius", radius_bounds=(80,0), showplot=showPyplots, polar=plotPolar)
+    if makePlotly:
+        print(f"plotting diffs... {new_all.shape[0]}")
+        tit = linearstring+"Difference + %.2f: " % mostunder+eventnames
+        graphCylindricalPoints(new_all, idx, markersize=6, title=tit)
+        if plotTestDetail:
+            graphCylindricalPoints(test, idx, markersize=6, title="Test Real: "+eventnames)
+            graphCylindricalPoints(new_test, idx, markersize=6,  title=linearstring+"Test Predicted: "+eventnames)
 
 
-# for multi-class regression, use multi:softprob
-# verbosity 0 (silent), 1 (warning), 2 (info), and 3 (debug)
-# use_rmm uses RAPIDS Memory Manager (RMM) to allocate GPU memory
-xgb.config_context(verbosity=2,use_rmm=False)
-watchlist = [(test, "eval"), (train, "train")]
-num_round = 4
-bst = xgb.train(param_tree, train, num_round, watchlist)
-preds = bst.predict(test)
-labels = test.get_label()
-
-clf = xgb.XGBClassifier(tree_method="hist", early_stopping_rounds=3)
-
-
-results = {}
-
-
-def f(x: np.ndarray) -> np.ndarray:
-    """The function to predict."""
-    return x * np.sin(x)
-
-
-def quantile_loss(args: argparse.Namespace) -> None:
+def quantile_loss(args: argparse.Namespace, X, Y) -> None:
     """Train a quantile regression model."""
-    rng = np.random.RandomState(1994)
-    # Generate a synthetic dataset for demo, the generate process is from the sklearn
-    # example.
-    X = np.atleast_2d(rng.uniform(0, 10.0, size=1000)).T
-    expected_y = f(X).ravel()
-
-    sigma = 0.5 + X.ravel() / 10.0
-    noise = rng.lognormal(sigma=sigma) - np.exp(sigma**2.0 / 2.0)
-    y = expected_y + noise
-
     # Train on 0.05 and 0.95 quantiles. The model is similar to multi-class and
     # multi-target models.
     alpha = np.array([0.05, 0.5, 0.95])
     evals_result: Dict[str, Dict] = {}
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=rng)
+    X_train, X_test, y_train, y_test = train_test_split(X, Y, random_state=random_state)
     # We will be using the `hist` tree method, quantile DMatrix can be used to preserve
     # memory.
     # Do not use the `exact` tree method for quantile regression, otherwise the
     # performance might drop.
-    Xy = xgb.QuantileDMatrix(X, y)
+    XY = xgb.QuantileDMatrix(X, Y)
     # use Xy as a reference
-    Xy_test = xgb.QuantileDMatrix(X_test, y_test, ref=Xy)
+    XY_train = xgb.QuantileDMatrix(X_train, Y_train, ref=XY)
+    XY_test = xgb.QuantileDMatrix(X_test, y_test, ref=XY)
 
     booster = xgb.train(
         {
@@ -199,11 +357,11 @@ def quantile_loss(args: argparse.Namespace) -> None:
             "learning_rate": 0.04,
             "max_depth": 5,
         },
-        Xy,
+        XY,
         num_boost_round=32,
         early_stopping_rounds=2,
         # The evaluation result is a weighted average across multiple quantiles.
-        evals=[(Xy, "Train"), (Xy_test, "Test")],
+        evals=[(XY, "Train"), (XY_test, "Test")],
         evals_result=evals_result,
     )
     xx = np.atleast_2d(np.linspace(0, 10, 1000)).T
@@ -213,7 +371,7 @@ def quantile_loss(args: argparse.Namespace) -> None:
     assert scores.shape[1] == alpha.shape[0]
 
     y_lower = scores[:, 0]  # alpha=0.05
-    y_med = scores[:, 1]  # alpha=0.5, median
+    y_med   = scores[:, 1]  # alpha=0.5, median
     y_upper = scores[:, 2]  # alpha=0.95
 
     # Train a mse model for comparison
@@ -225,10 +383,10 @@ def quantile_loss(args: argparse.Namespace) -> None:
             "learning_rate": 0.04,
             "max_depth": 5,
         },
-        Xy,
+        XY,
         num_boost_round=32,
         early_stopping_rounds=2,
-        evals=[(Xy, "Train"), (Xy_test, "Test")],
+        evals=[(XY_train, "Train"), (XY_test, "Test")],
         evals_result=evals_result,
     )
     xx = np.atleast_2d(np.linspace(0, 10, 1000)).T
@@ -251,25 +409,11 @@ def quantile_loss(args: argparse.Namespace) -> None:
         plt.legend(loc="upper left")
         plt.show()
 
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--plot",
-        action="store_true",
-        help="Specify it to enable plotting the outputs.",
-    )
-    args = parser.parse_args()
-    quantile_loss(args)
-
-
-
-
+# custom multi-class objective function
 def softmax(x):
     '''Softmax function with x as input vector.'''
     e = np.exp(x)
     return e / np.sum(e)
-
 
 def softprob_obj(predt: np.ndarray, data: xgb.DMatrix):
     '''Loss function.  Computing the gradient and approximated hessian (diagonal).
@@ -314,7 +458,6 @@ def softprob_obj(predt: np.ndarray, data: xgb.DMatrix):
     hess = hess.reshape((kRows * kClasses, 1))
     return grad, hess
 
-
 def predict(booster: xgb.Booster, X):
     '''A customized prediction function that converts raw prediction to
     target class.
@@ -331,7 +474,6 @@ def predict(booster: xgb.Booster, X):
         i = np.argmax(predt[r])
         out[r] = i
     return out
-
 
 def merror(predt: np.ndarray, dtrain: xgb.DMatrix):
     y = dtrain.get_label()
@@ -353,7 +495,6 @@ def merror(predt: np.ndarray, dtrain: xgb.DMatrix):
     errors[y != out] = 1.0
     return 'PyMError', np.sum(errors) / kRows
 
-
 def plot_history(custom_results, native_results):
     fig, axs = plt.subplots(2, 1)
     ax0 = axs[0]
@@ -370,31 +511,30 @@ def plot_history(custom_results, native_results):
 
     plt.show()
 
-
-def main(args):
+def custom_objective(args):
     custom_results = {}
     # Use our custom objective function
     booster_custom = xgb.train({'num_class': kClasses,
                                 'disable_default_eval_metric': True},
-                               m,
+                               M_train,
                                num_boost_round=kRounds,
                                obj=softprob_obj,
                                custom_metric=merror,
                                evals_result=custom_results,
-                               evals=[(m, 'train')])
+                               evals=[(M_train, 'train'),(M_valid,'valid')])
 
-    predt_custom = predict(booster_custom, m)
+    predt_custom = predict(booster_custom, M_test)
 
     native_results = {}
     # Use the same objective function defined in XGBoost.
     booster_native = xgb.train({'num_class': kClasses,
                                 "objective": "multi:softmax",
                                 'eval_metric': 'merror'},
-                               m,
+                               M_train,
                                num_boost_round=kRounds,
                                evals_result=native_results,
-                               evals=[(m, 'train')])
-    predt_native = booster_native.predict(m)
+                               evals=[(M_train, 'train'),(M_valid,'valid')])
+    predt_native = booster_native.predict(M_test)
 
     # We are reimplementing the loss function in XGBoost, so it should
     # be the same for normal cases.
@@ -405,14 +545,30 @@ def main(args):
     if args.plot != 0:
         plot_history(custom_results, native_results)
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description='Arguments for custom softmax objective function demo.')
-    parser.add_argument(
-        '--plot',
-        type=int,
-        default=1,
-        help='Set to 0 to disable plotting the evaluation history.')
+        description='Arguments classifying XGBoost on cluster data')
+    parser.add_argument('--np', dest="np", default=True, 
+                        action="store_false", help='turn off plotly attempt')
+    parser.add_argument('--nps', '--nopyplot', '--nompl', dest="nps", default=True, 
+                        action="store_false", help='turn off matplotlib showing plots')
+    parser.add_argument('--field', "--f", dest="f", type=int, default=0, 
+                        help='index of field to fit in (sector#, ring#, id#)')
+    parser.add_argument('--dim', dest="xdim", type=int, default=2, 
+                        help='dimensions of x to use out of (radius, theta, z) if 4,5,6 will index into a fields instead')
+    parser.add_argument('--tvt', "--split", dest="split", type=float, default=0.125, 
+                        help='percentage to partition testing and validation sets.')
+    parser.add_argument('--ev', "--events", dest="evs", default=[], nargs = "+",
+                        help='event indices to use (0-317, in increasing number of events). specs of "l3" and "s2" will add 3rd largest w.r.t maxnevs, 2nd smallest event resp.')
+    parser.add_argument('--maxn', "--maxnevs", "--maxevs", dest="maxnevs", type=int, default=50000,
+                        help='maximum number of events to pull')
+    parser.add_argument('--save', "--savename", "--name", dest="sname", default="",
+                        help='save created model in a file format with given name')
+    parser.add_argument('--linear', "--l", dest="makelinear", default=False, action="store_true",
+                        help='Make linear booster instead of tree')
     args = parser.parse_args()
-    main(args)
+    #custom_objective(args)
+    #quantile_loss(args)
+    classifyModel(args.f, args.xdim, tvt_split=args.split, ev_idxs=args.evs, maxnumevents=args.maxnevs, 
+                  save_model_name=args.sname, makePlotly=args.np, makeLinear=args.makelinear, 
+                  showPyplots=args.nps, plotPolar=False)
