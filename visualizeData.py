@@ -285,15 +285,16 @@ def graphCylindricalPoints(clusters, labelidx, title="", markersize=4, width=150
         possible_label_idxs = [3,4,5]
         #possible_label_idxs.remove(labelidx)
         colors = points[:,labelidx]
+        name += ", avg: %.3f" % np.mean(colors)
         ids = []
         for pt in points:
             id_txt = []
-            for id in pt:
+            for id in pt[3:]:
                 if id == int(id):
                     id_txt.append("%d" % id)
                 else:
-                    id_txt.append("%.23f" % id)
-        ids.append(', '.join(id_txt))
+                    id_txt.append("%.3f" % id)
+            ids.append(', '.join(id_txt))
         trace = go.Scatter3d(x=X, y=Y, z=Z,mode='markers',name=name,
                             marker=dict(size=markersize,cmin=cmin,cmax=cmax,color=colors,colorscale="Turbo_r",opacity=0.8),
                             customdata=ids,
