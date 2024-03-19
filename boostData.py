@@ -4,21 +4,15 @@ import numpy as np
 import os, sys
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
-from visualizeData import loadFromNPZ, timeIt
+from visualizeData import loadFromNPZ, timeIt, RBOUNDARIES
 from visualizeData import graphCylindricalPoints, getFieldPoints, plotRTheta
 import argparse
 from typing import Dict
 
 PLOT_SIZE = (12,6)
 
-def fit_and_score(estimator, X_train, X_test, y_train, y_test):
-    """Fit the estimator on the train set and score it on both sets"""
-    estimator.fit(X_train, y_train, eval_set=[(X_test, y_test)])
-    train_score = estimator.score(X_train, y_train)
-    test_score = estimator.score(X_test, y_test)
-    return estimator, train_score, test_score
-
-def train_valid_test(arr: np.ndarray, test_percentage, valid_percentage=0.0, random_state=None):
+def train_valid_test(arr: np.ndarray, test_percentage: float, valid_percentage=0.0):
+    """ Return train, valid, test split from an array"""
     n = arr.shape[0]
     test_n = int(test_percentage * n)
     valid_n = int(valid_percentage * n)
@@ -35,12 +29,12 @@ def train_valid_test(arr: np.ndarray, test_percentage, valid_percentage=0.0, ran
     print("train:",train_n,train.shape,"valid",valid_n,valid.shape,"test",test_n,test.shape)
     return (train, valid, test)
 
-def within_eps(act, pred, eps):
+def within_eps(act: np.ndarray, pred: np.ndarray, eps: float) -> np.ndarray:
     return np.logical_and(pred <= (act + eps), pred >= (act - eps))
-def outside_eps(act, pred, eps):
+def outside_eps(act: np.ndarray, pred: np.ndarray, eps: float) -> np.ndarray:
     return np.logical_or(pred > (act + eps), pred < (act - eps))
 
-def printAccuracy(actual, predicted, eps=0):  # predicted are floats for fSubdetId
+def printAccuracy(actual, predicted, eps=0) -> str:  # predicted are floats for fSubdetId
     """ string of accuracy for each label from int predictions, 3 decimal points after percent """
     if eps:
         func = lambda act, pred: within_eps(act, pred, eps)
@@ -48,42 +42,44 @@ def printAccuracy(actual, predicted, eps=0):  # predicted are floats for fSubdet
         func = lambda act, pred: act == pred
     ret = ["tot:%.3f" % (100*np.sum(func(actual, predicted))/actual.shape[0])]
     labels = np.unique(actual)
-    for label in labels:
+    percs  = np.empty(labels.size,dtype=int)
+    for i in range(labels.size):
+        label = labels[i]
         indices = actual == label
         ac = actual[indices]
         pr = predicted[indices]
-        perc = 100*np.sum(func(ac,pr))/ac.shape[0]
-        if perc:
-            perc = "%.3f" % perc
-            if perc[-3:] == "000":
-                perc = perc[:-4] # exclude decimal
-            ret.append("%d:%s" % (label, perc))
-        else:  # nothing predicted
-            continue
-            ret.append("~%d" % label)
-    return ', '.join(ret)
+        perc = round(100*np.sum(func(ac,pr))/ac.shape[0])
+        percs[i] = perc
+    return str(percs)
 
-def eighteenOGonLabels(R,T):
+def eighteenOGonLabels(R: np.ndarray, T: np.ndarray, Z=False) -> tuple[list[int],list[int]]:
     ''' inputs: XY is dim (size,2), Z is dim (size) for labels 
         doesn't label any empty sectors of data '''
     assert(T.size == R.size)
-    Rs = [0,5,10,17,35,40,45,80,134,250,292.5,375,450] # last is j super big
+    Rs = RBOUNDARIES # last is j super big
     sectors = np.empty(T.size)
     rings = np.empty(T.size)
     angle = 2*np.pi/18
     rlabel = 0; slabel = 0
+    # ORDER: Ring, Z, Theta
     for r in range(len(Rs)-1):  # bound radius
-        layer_mask = R > Rs[r]
-        layer_mask = np.logical_and(layer_mask, R < Rs[r+1])
-        for t in range(18):     # bound angle
-            angle_mask = T > t*angle
-            angle_mask = np.logical_and(angle_mask, T < (t+1)*angle)
-            mask = np.logical_and(angle_mask, layer_mask)
-            sectors[mask] = slabel
-            if sectors[mask].size:
-                slabel += 1
-        rings[layer_mask] = rlabel
-        if rings[layer_mask].size: rlabel += 1
+        ring_mask = (R > Rs[r]) & (R < Rs[r+1])
+        rings[ring_mask] = rlabel
+        if rings[ring_mask].size: rlabel += 1
+        else: continue # ring is empty
+        if not isinstance(Z,bool) and r in (7,8):  # divide middle sectors by Z
+            for Z_mask in (Z >= 0, Z < 0):
+                for t in range(18):     # bound angle
+                    angle_mask = (T > t*angle) & (T < (t+1)*angle)
+                    mask = angle_mask & ring_mask & Z_mask
+                    sectors[mask] = slabel
+                    if sectors[mask].size: slabel += 1
+        else:
+            for t in range(18):     # bound angle
+                angle_mask = (T > t*angle) & (T < (t+1)*angle)
+                mask = angle_mask & ring_mask
+                sectors[mask] = slabel
+                if sectors[mask].size: slabel += 1
     return rings, sectors
 
 # ---- GET AND FORMAT DATA ---- #
@@ -94,30 +90,21 @@ np.random.seed(random_state)
 # events ordered by size: index of event, event, number of clusters
 events_ordered = loadFromNPZ("events_increasing_size")
 
-print("navigating event orderings, largest to smallest")
-i = events_ordered.shape[0] - 1
-while 1:
-    print(events_ordered[i])
-    t = input("type e to exit:").lower().rstrip()
-    if t == 'e':
-        break
-    i -= 1
-    if i < 0: break
-
 # ---- FORMAT: cylindrical coordinates, sector, ring, fSubdetId ---- #
 @timeIt
-def getCoords(eventidxs=[], maxnumevents= 10000):
+def getCoords(eventidxs=[], maxnpts= 10000, sectors_with_Z = False) -> tuple[np.ndarray, int]:
     clusters = loadFromNPZ("../clusters")
     #events = np.unique(clusters["event"])
-    points, events_used = getFieldPoints(clusters, "event", eventidxs, maxnumevents, printinfo=0)
+    points, events_used = getFieldPoints(clusters, "event", eventidxs, maxnpts, printinfo=0)
     # ----- WE GOING CYLINDRICAL IN THIS BIH ------ #
     R = np.sqrt(points["fV.fY"]**2 + points["fV.fX"]**2)
     Xs = np.where(points["fV.fX"], points["fV.fX"], 1e-32)  # dont divide by zero
     arctans = np.arctan(points["fV.fY"]/Xs)
     # transcribe arctan to actual angles
     T = np.where(points["fV.fY"] > 0, np.where(Xs > 0, arctans, arctans+np.pi), np.where(Xs > 0, 2*np.pi + arctans, arctans + np.pi))
+    #T = np.mod(T + np.pi/2, 2*np.pi)
     Z = points["fV.fZ"]
-    rings, sectors = eighteenOGonLabels(R,T)
+    rings, sectors = eighteenOGonLabels(R,T,Z) if sectors_with_Z else eighteenOGonLabels(R,T)
     subid = points["fSubdetId"]
     # can cast to object type to preserve int-ness of the labels, but 
     # instead we will just change the types of the labels accordingly 
@@ -127,28 +114,15 @@ def getCoords(eventidxs=[], maxnumevents= 10000):
     print("\tusing events",', '.join([str(ev) for ev in events_used]))
     return coords, events_used
 
-def classifyModel(fieldidx: 0|1|2, x_dim: 1|2|3, tvt_split=0.125, ev_idxs=[], maxnumevents=10000, 
-                  save_model_name="", makePlotly=True, makeLinear=False, showPyplots=False, plotPolar=True):
-    '''
-    - fieldidx indexes whether sector, ring, or fsubdetid are being classified
-    - tvt_split: partitions valid and test sets as tvt_split percentage of data
-    - x_dim is whether to use just r, r + theta, or r + theta + z as input features
-    - makePlotly: whether to graph labels in plotly(recommend). will make pyplot regardless
-    '''
-    if fieldidx < 0 or fieldidx > 2: fieldidx = 0
-    if x_dim < 1: x_dim = 2
-    fieldsMode = x_dim > 2   # predict one field from the other two fields?
-
-    fIds = ("Ring","Sector","fSubdetId")
-    fId = fIds[fieldidx]
-    idx = fieldidx + 3
-    print(f"now classifying {fId}")
-    
-    # assumes you do not specify same event twice
+def getEventsToMake(ev_idxs: list[str], maxnpts: int) -> tuple[list[str], int]:
+    """ use events_ordered (loaded globally) to parse ev_idxs to within maxnpts.
+        returns """
+    doFill = False
     ev_idxs_to_make = []; numused = 0  # events_ordered has (index, event, size)
     for evidx in ev_idxs:
         i = 0
         if evidx.isdigit():
+            if int(evidx) in ev_idxs_to_make: continue
             ev_idxs_to_make.append(int(evidx))
             for ordered_ev in events_ordered:
                 if ordered_ev[0] == evidx:
@@ -161,41 +135,79 @@ def classifyModel(fieldidx: 0|1|2, x_dim: 1|2|3, tvt_split=0.125, ev_idxs=[], ma
                 if num_l.isdigit():
                     num_l = int(num_l)
             for ordered_ev in events_ordered[::-1]:
-                if ordered_ev[2] + numused <= maxnumevents:
-                    if i == num_l:
+                if ordered_ev[2] + numused <= maxnpts:
+                    if i == num_l:  # go to num_l largest that works
+                        if ordered_ev[0] in ev_idxs_to_make: continue
                         ev_idxs_to_make.append(ordered_ev[0])
                         numused += ordered_ev[2]
                         break
                     i += 1
         elif evidx[0] == "s":
-            num_include = 1
-            if len(ev_idxs[0]) > 1:
-                num_include = ev_idxs[0][1:]
+            num_s = 0
+            if len(evidx) > 1:
+                num_include = evidx[1:]
                 if num_include.isdigit():
                     num_include = int(num_include)
-            for ordered_ev in events_ordered:
-                if i >= num_include or ordered_ev[2] + numused >= maxnumevents: break
+            while num_s:
+                if events_ordered[num_s][2] + numused <= maxnpts and events_ordered[num_s][0] not in ev_idxs_to_make:
+                    ev_idxs_to_make.append(events_ordered[num_s][0])
+                    numused += events_ordered[num_s][2]
+                    break
+                num_s -= 1
+        elif evidx[0] == "f": doFill = True
+    if doFill:
+        for ordered_ev in events_ordered[::-1]:
+            if ordered_ev[2] + numused <= maxnpts:
+                if ordered_ev[0] in ev_idxs_to_make: continue
                 ev_idxs_to_make.append(ordered_ev[0])
                 numused += ordered_ev[2]
-                i += 1
-    print("making events:",ev_idxs_to_make)
-    coords, events_used = getCoords(ev_idxs_to_make, maxnumevents)  # coords: float array, events_used: int list
+    return ev_idxs_to_make, numused
+
+def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[], maxnpts=10000, 
+                  save_model_name="", makePlotly=True, makeLinear=False, showPyplots=False, plotPolar=True,
+                  sectors_with_Z=True, epsilon=5):
+    '''
+    - fieldidx index to classify: 0: ring, 1:sector, 2:fSubdetId
+    - xidxs gives indexes of coords to use, 0:R, 1:Theta, 2:Z, 3:ring, 4:sector, 5:fSubdetId
+    - tvt_split: partitions valid and test sets as tvt_split percentage of data
+    - ev_idxs: indices into np.unique(clusters['events']). 
+      - "l" chooses largest event within maxnpts. "l5" chooses 5th largest index from "l". 
+      - "s5" chooses 5-th smallest event
+      - "f" will fill in as many other events as possible to reach maxnpts
+      - "l" is recommended for fitting event-dependent fields like fSubdetId
+    - makePlotly: whether to graph labels in plotly(recommend). will make pyplot regardless
+    - sectors_with_Z: add Z definition to the middle things for plotly toggle-ability
+    - save_model_name: name to save XGBoost created model (might be too big tho?)
+
+    '''
+    if fieldidx < 0 or fieldidx > 2: fieldidx = 0
+    fIds = ("Ring","Sector","fSubdetId")
+    fId = fIds[fieldidx]
+    idx = fieldidx + 3
+    print(f"now classifying {fId}")
+
+    ev_idxs_to_make, npts = getEventsToMake(ev_idxs, maxnpts)
+    print(f"making events w/ {npts} pts:",ev_idxs_to_make)
+    coords, events_used = getCoords(ev_idxs_to_make, maxnpts, sectors_with_Z)  # coords: float array, events_used: int list
     eventnames = ', '.join([str(ev) for ev in events_used])
     linearstring = ("(Linear) " if makeLinear else "")
     if makePlotly: graphCylindricalPoints(coords, idx, title="All "+str(coords.shape[0])+" Points: "+eventnames, markersize=6)
-    if x_dim == 2:  # graph R, Theta
+    if 3 not in xidxs:  # graph R, Theta
         plotRTheta(coords, idx, "Initial points", radius_bounds=(0,0), showplot=showPyplots, polar=plotPolar)
+    
+    def XfromCoords(coords, x_indexes):
+        return np.stack((coords[:,xidx] for xidx in x_indexes),axis=-1)
 
-    X = coords[:,:x_dim]
+    X = XfromCoords(coords, xidxs)
     Y = coords[:,idx].astype(int)
 
     print("x shape:",X.shape,"y shape:",Y.shape)
-    train, valid, test = train_valid_test(coords, tvt_split, tvt_split, random_state)
+    train, valid, test = train_valid_test(coords, tvt_split, tvt_split)
 
     # predict for field idx from x spatial things
-    X_train = train[:,:x_dim]
-    X_valid = valid[:,:x_dim]
-    X_test  = test[:,:x_dim]
+    X_train = XfromCoords(train, xidxs)
+    X_valid = XfromCoords(valid, xidxs)
+    X_test  = XfromCoords(test, xidxs)
     Y_train = train[:,idx].astype(int)
     Y_valid = valid[:,idx].astype(int)
     Y_test  = test[:,idx].astype(int)
@@ -213,6 +225,7 @@ def classifyModel(fieldidx: 0|1|2, x_dim: 1|2|3, tvt_split=0.125, ev_idxs=[], ma
     # -------- PPOTENTIAL TREE PARAMETERS
     param_linear = {"objective": "multi:softmax", 
                     "booster": "gblinear",
+                    "eval_metric": "merror",
                     "alpha": 0.0,   # L1 regular ization
                     "lambda": 0.001, # L2 regularization
                     "updater": "shotgun",  # or coord_descent
@@ -224,7 +237,7 @@ def classifyModel(fieldidx: 0|1|2, x_dim: 1|2|3, tvt_split=0.125, ev_idxs=[], ma
 
     param_tree = {
         "max_depth": maxDepth,
-        "min_child_weight": 0.1,
+        "min_child_weight": 0.0,
         "max_leaves": 0,  # no max
         "max_bin": 512,  # max bins for continuous features
         "objective": "multi:softmax",  
@@ -232,7 +245,7 @@ def classifyModel(fieldidx: 0|1|2, x_dim: 1|2|3, tvt_split=0.125, ev_idxs=[], ma
         "num_class": kClasses, # for mult-class
         "eval_metric": "mlogloss", # or merror, auc
         #"eval_metric": "merror",
-        "lambda": 0.0001,      # L2 regularization term
+        "lambda": 0.0,      # L2 regularization term
         "tree_method": "hist", #fastest greedy algo
         "min_split_loss": 0,
         "learning_rate": 0.3,
@@ -245,7 +258,7 @@ def classifyModel(fieldidx: 0|1|2, x_dim: 1|2|3, tvt_split=0.125, ev_idxs=[], ma
         del param_tree["num_class"]
         param_linear["objective"] = "reg:squarederror"
         del param_linear["num_class"]
-        eps = 5
+        eps = epsilon
     else:
         eps = 0
 
@@ -266,16 +279,17 @@ def classifyModel(fieldidx: 0|1|2, x_dim: 1|2|3, tvt_split=0.125, ev_idxs=[], ma
     train_pred = bst.predict(xgb.DMatrix(X_train), iteration_range=(0, bst.best_iteration + 1))
     valid_pred = bst.predict(xgb.DMatrix(X_valid), iteration_range=(0, bst.best_iteration + 1))
 
-    print("accuracies:\n- train; ",printAccuracy(Y_train,train_pred,2),
-          "\n- valid; ",printAccuracy(Y_valid,valid_pred,2),
-          "\n- test; ",printAccuracy(Y_test,test_pred,2))
+    print("accuracies:\n- train; ",printAccuracy(Y_train,train_pred,eps),
+          "\n- valid; ",printAccuracy(Y_valid,valid_pred,eps),
+          "\n- test; ",printAccuracy(Y_test,test_pred,eps))
 
     all_differences = all_pred - coords[:,idx]
 
     print(f'avg:{np.mean(all_differences)},std:{np.std(all_differences)},max:{np.max(all_differences)},min:{np.min(all_differences)}')
-    for eps in np.linspace(0.001,10,100):
-        n = np.sum(within_eps(coords[:,idx], all_pred,eps))
-        print("%d within %.3f: %.1f" % (n,eps,100*n/coords.shape[0])+"%")
+    for ep in np.linspace(0,2*eps,100):
+        n = np.sum(within_eps(coords[:,idx], all_pred,ep))
+        print("%d within %.3f: %.1f" % (n,ep,100*n/coords.shape[0])+"%")
+      
 
     if save_model_name:
         print("saving model...")
@@ -291,45 +305,105 @@ def classifyModel(fieldidx: 0|1|2, x_dim: 1|2|3, tvt_split=0.125, ev_idxs=[], ma
     #bst_new = xgb.Booster({'nthread': 4})  # init model
     #bst_new.load_model('0001.model')  # load data
     
-    if not makeLinear and maxnumevents < 100000:
+    if not makeLinear and fieldidx != 2:
         fig, axs = plt.subplots(2,1,figsize=(12,8))
         xgb.plot_importance(bst, ax=axs[0])
         xgb.plot_tree(bst, num_trees=2, ax=axs[1])
         fig.savefig("xgb_fig.pdf")
         if showPyplots: fig.show()
 
-    # ---- PLOT TEST ---- #
+    # ---- PLOT RESULTS! ---- #
     print("plotting...")
-    plotTestDetail = False
-    if plotTestDetail:
-        new_test = np.copy(test)
-        new_test[:,idx] = test_pred
-    indices = within_eps(coords[:,idx], all_pred, eps)
-    new_all = coords[indices]
-    print("creating to predict...")
-    diffs = all_pred[indices] - new_all[:,idx]
-    mostunder = min(diffs); mostover = max(diffs)
-    print(f"underpredicted by up to {mostunder} & overpredicted up to {mostover}")
-    new_all[:,idx] = diffs
-    if x_dim == 2:  # plot points in R, Theta
-        plotRTheta(new_all, idx, "Predicted Points", radius_bounds=(0,0), showplot=showPyplots, polar=plotPolar)
-        if plotTestDetail:
-            plotRTheta(test, idx, "Test-Real", showplot=showPyplots)
-            plotRTheta(new_test, idx, "Test-Predicted")
-            plotRTheta(new_test, idx, "Test-Predicted Small Radius", radius_bounds=(0,45), showplot=showPyplots, polar=plotPolar)
-            plotRTheta(new_test, idx, "Test-Predicted Large Radius", radius_bounds=(80,0), showplot=showPyplots, polar=plotPolar)
-        else: # detail all points
-            plotRTheta(new_all, idx, "Predicted Small Radius", radius_bounds=(0,45), showplot=showPyplots, polar=plotPolar)
-            plotRTheta(new_all, idx, "Predicted Large Radius", radius_bounds=(80,0), showplot=showPyplots, polar=plotPolar)
+    plotTestDetail = True
+    # make both prediction set and set with differences, prediction - actual
+    # TEST COORDS: make new_test and test_diffs
+    # ALL COORDS: make new_all and all_diffs with prediction, differences for
+    good_indices     = within_eps(coords[:,idx], all_pred, eps)
+    bad_indices      = outside_eps(coords[:,idx], all_pred, eps)
+    good_all         = coords[good_indices]
+    good_all[:,idx] -= all_pred[good_indices]
+    bad_all          = coords[bad_indices]
+    bad_all[:,idx]  -= all_pred[bad_indices]
     if makePlotly:
-        print(f"plotting diffs... {new_all.shape[0]}")
-        tit = linearstring+"Difference + %.2f: " % mostunder+eventnames
-        graphCylindricalPoints(new_all, idx, markersize=6, title=tit)
-        if plotTestDetail:
-            graphCylindricalPoints(test, idx, markersize=6, title="Test Real: "+eventnames)
-            graphCylindricalPoints(new_test, idx, markersize=6,  title=linearstring+"Test Predicted: "+eventnames)
+        print(f"plotly-ing good diffs... {good_all.shape[0]}")
+        tit = linearstring+"Difference Within ±%.2f: %dpts, evs %s" % (eps,good_all.shape[0],eventnames)
+        graphCylindricalPoints(good_all, idx, markersize=6, title=tit)
+        print(f"plotly-ing bad diffs... {bad_all.shape[0]}")
+        tit = linearstring+"Difference Outside ±%.2f: %dpts, evs %s" % (eps,bad_all.shape[0],eventnames)
+        graphCylindricalPoints(bad_all, idx, markersize=6, title=tit)
+    plotRTheta(good_all, idx, fId+" Diffs Within "+str(eps), radius_bounds=(0,0), showplot=showPyplots, polar=plotPolar)
+    plotRTheta(bad_all, idx, fId+" Diffs Outside "+str(eps), radius_bounds=(0,0), showplot=showPyplots, polar=plotPolar)
+    if plotTestDetail:
+        # make "bad" and "good" differences from eps
+        good_indices     = within_eps(test[:,idx], test_pred, eps)
+        bad_indices      = outside_eps(test[:,idx], test_pred, eps)
+        good_test        = test[good_indices]
+        good_test[:,idx]-= test_pred[good_indices]
+        bad_test         = test[bad_indices]
+        bad_test[:,idx] -= test_pred[bad_indices]
+        mostundertest = min(bad_test[:,idx]); mostovertest = max(bad_test[:,idx])
+        print(f"test underpredicted by up to {mostundertest} & overpredicted up to {mostovertest}")
+        plotRTheta(good_test, idx, fId+" Test Diffs Within "+str(eps), showplot=showPyplots, polar=plotPolar)
+        plotRTheta(bad_test, idx, fId+" Test Diffs Outside "+str(eps), showplot=showPyplots, polar=plotPolar)
+        if makePlotly:
+            print(f"plotly-ing good test diffs... {good_test.shape[0]}")
+            tit = linearstring+"Test Difference Within ±%.2f: %dpts, evs %s" % (eps,good_test.shape[0],eventnames)
+            graphCylindricalPoints(good_test, idx, markersize=6, title=tit)
+            print(f"plotly-ing bad test diffs... {bad_test.shape[0]}")
+            tit = linearstring+"Test Difference Outside ±%.2f: %dpts, evs %s" % (eps,bad_test.shape[0],eventnames)
+            graphCylindricalPoints(bad_test, idx, markersize=6, title=tit)
 
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description='Arguments classifying XGBoost on cluster data')
+    parser.add_argument('--np', dest="np", default=True, 
+                        action="store_false", help='turn off plotly attempt')
+    parser.add_argument('--pyplot', '--mpl', '--plot', dest="nps", default=False, 
+                        action="store_false", help='turn off matplotlib showing plots')
+    parser.add_argument('--field', "--f", dest="f", type=int, default=0, 
+                        help='index of field to fit in (sector#, ring#, id#)')
+    parser.add_argument('--dims', '--idxs', '--xidxs', dest="xdim", default=[0,1,2], nargs='+', 
+                        help='dimensions of x to use out of (radius, theta, z) if 4,5,6 will index into a fields instead')
+    parser.add_argument('--tvt', "--split", dest="split", type=float, default=0.125, 
+                        help='percentage to partition testing and validation sets.')
+    parser.add_argument('--ev', "--events", dest="evs", default=[], nargs = "+",
+                        help='event indices to use (0-317, in increasing number of events). specs of "l3" and "s2" will add 3rd largest w.r.t maxnevs, 2nd smallest event resp.')
+    parser.add_argument('--maxn', "--maxnevs", "--maxevs", dest="maxnevs", type=int, default=50000,
+                        help='maximum number of events to pull')
+    parser.add_argument('--save', "--savename", "--name", dest="sname", default="",
+                        help='save created model in a file format with given name')
+    parser.add_argument('--linear', "--l", dest="makelinear", default=False, action="store_true",
+                        help='Make linear booster instead of tree')
+    parser.add_argument('--info','--evinfo', dest="info", default=False, action="store_true", 
+                        help="from largest to smallest, print info about number of clusters in events in form (idx, event, size)")
+    parser.add_argument('--polar','--polar', dest="polar", default=False, action="store_true", 
+                        help="plot results in R, theta in polar coordinates instead of transforming back to cartesian")
+    parser.add_argument('--eps', dest="eps", default=5, type=int, 
+                        help="when plotting differences, max absolute difference to include in plot")
+    args = parser.parse_args()
+    #custom_objective(args)
+    #quantile_loss(args)
+    if args.info:
+        print("navigating event orderings, largest to smallest")
+        i = events_ordered.shape[0] - 1
+        while 1:
+            print(events_ordered[i])
+            t = input("type e to exit:").lower().rstrip()
+            if t == 'e':
+                break
+            i -= 1
+            if i < 0: break
+    if isinstance(args.xdim[0],str):
+        args.xdim = [int(x) for x in args.xdim]
 
+    classifyModel(args.f, args.xdim, tvt_split=args.split, ev_idxs=args.evs, maxnpts=args.maxnevs, 
+                  save_model_name=args.sname, makePlotly=args.np, makeLinear=args.makelinear, 
+                  showPyplots=args.nps, plotPolar=args.polar, epsilon=args.eps)
+    
+# ---------------------
+# XGBOOST training metrics
+    
+ # ---- MAIN AT LINE 400 ---
 def quantile_loss(args: argparse.Namespace, X, Y) -> None:
     """Train a quantile regression model."""
     # Train on 0.05 and 0.95 quantiles. The model is similar to multi-class and
@@ -409,12 +483,14 @@ def quantile_loss(args: argparse.Namespace, X, Y) -> None:
         plt.legend(loc="upper left")
         plt.show()
 
+# ---- MAIN AT LINE 400 ---
 # custom multi-class objective function
 def softmax(x):
     '''Softmax function with x as input vector.'''
     e = np.exp(x)
     return e / np.sum(e)
 
+# ---- MAIN AT LINE 400 ---
 def softprob_obj(predt: np.ndarray, data: xgb.DMatrix):
     '''Loss function.  Computing the gradient and approximated hessian (diagonal).
     Reimplements the `multi:softprob` inside XGBoost.
@@ -458,6 +534,7 @@ def softprob_obj(predt: np.ndarray, data: xgb.DMatrix):
     hess = hess.reshape((kRows * kClasses, 1))
     return grad, hess
 
+# ---- MAIN AT LINE 400 ---
 def predict(booster: xgb.Booster, X):
     '''A customized prediction function that converts raw prediction to
     target class.
@@ -475,6 +552,7 @@ def predict(booster: xgb.Booster, X):
         out[r] = i
     return out
 
+# ---- MAIN AT LINE 400 ---
 def merror(predt: np.ndarray, dtrain: xgb.DMatrix):
     y = dtrain.get_label()
     # Like custom objective, the predt is untransformed leaf weight when custom objective
@@ -495,6 +573,7 @@ def merror(predt: np.ndarray, dtrain: xgb.DMatrix):
     errors[y != out] = 1.0
     return 'PyMError', np.sum(errors) / kRows
 
+# ---- MAIN AT LINE 400 ---
 def plot_history(custom_results, native_results):
     fig, axs = plt.subplots(2, 1)
     ax0 = axs[0]
@@ -511,6 +590,7 @@ def plot_history(custom_results, native_results):
 
     plt.show()
 
+# ---- MAIN AT LINE 400 ---
 def custom_objective(args):
     custom_results = {}
     # Use our custom objective function
@@ -545,30 +625,5 @@ def custom_objective(args):
     if args.plot != 0:
         plot_history(custom_results, native_results)
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        description='Arguments classifying XGBoost on cluster data')
-    parser.add_argument('--np', dest="np", default=True, 
-                        action="store_false", help='turn off plotly attempt')
-    parser.add_argument('--nps', '--nopyplot', '--nompl', dest="nps", default=True, 
-                        action="store_false", help='turn off matplotlib showing plots')
-    parser.add_argument('--field', "--f", dest="f", type=int, default=0, 
-                        help='index of field to fit in (sector#, ring#, id#)')
-    parser.add_argument('--dim', dest="xdim", type=int, default=2, 
-                        help='dimensions of x to use out of (radius, theta, z) if 4,5,6 will index into a fields instead')
-    parser.add_argument('--tvt', "--split", dest="split", type=float, default=0.125, 
-                        help='percentage to partition testing and validation sets.')
-    parser.add_argument('--ev', "--events", dest="evs", default=[], nargs = "+",
-                        help='event indices to use (0-317, in increasing number of events). specs of "l3" and "s2" will add 3rd largest w.r.t maxnevs, 2nd smallest event resp.')
-    parser.add_argument('--maxn', "--maxnevs", "--maxevs", dest="maxnevs", type=int, default=50000,
-                        help='maximum number of events to pull')
-    parser.add_argument('--save', "--savename", "--name", dest="sname", default="",
-                        help='save created model in a file format with given name')
-    parser.add_argument('--linear', "--l", dest="makelinear", default=False, action="store_true",
-                        help='Make linear booster instead of tree')
-    args = parser.parse_args()
-    #custom_objective(args)
-    #quantile_loss(args)
-    classifyModel(args.f, args.xdim, tvt_split=args.split, ev_idxs=args.evs, maxnumevents=args.maxnevs, 
-                  save_model_name=args.sname, makePlotly=args.np, makeLinear=args.makelinear, 
-                  showPyplots=args.nps, plotPolar=False)
+
+# ---- MAIN AT LINE 400 ---

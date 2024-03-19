@@ -13,6 +13,8 @@ import argparse
 from fractions import Fraction
 
 # ---- CONSTANTS ---- #
+PLOT_DIR = "./plots"
+RBOUNDARIES = [0,5,10,17,35,40,45,84,134,250,292.5,373.5,500]
 # IBM's colorblind-friendly colors
 #           |   Red  |   Blue  |  Purple |  Orange | Yellow  |   Green |   Teal  | Grey
 hexcolors = ['DC267F', '648FFF', '785EF0', 'FE6100', 'FFB000', '009E73', '3DDBD9', '808080']
@@ -101,18 +103,18 @@ def addBoundaries(fig: go.Figure, make_cylinders=False):
     opacity = 0.1; linewidth = 3
     z_offset = -400
     colors = ['blue','red','purple']
-    for r in (5,10,17,35,40,45):  # close
+    for r in RBOUNDARIES[1:7]:  # close
         if make_cylinders: fig.add_trace(goCylinder(r, -z_offset*2, z_offset, 18, 2, colors[1], opacity))
         fig.add_trace(goCircle(r, z_offset, 18, colors[1], linewidth))
-    fig.add_trace(goLines((1,45), z_offset, 18, colors[1], linewidth))
-    for r in (85,135,250):   # middle
+    fig.add_trace(goLines((RBOUNDARIES[1],RBOUNDARIES[6]), z_offset, 18, colors[1], linewidth))
+    for r in RBOUNDARIES[7:10]:   # middle
         if make_cylinders: fig.add_trace(goCylinder(r, -z_offset*2, z_offset, 18, 2, colors[0], opacity))
         fig.add_trace(goCircle(r, z_offset, 18, colors[0], linewidth))
-    fig.add_trace(goLines((85,250),  z_offset, 18, colors[0], linewidth))
-    for r in (292.5,375):    # far
+    fig.add_trace(goLines((RBOUNDARIES[7],RBOUNDARIES[9]),  z_offset, 18, colors[0], linewidth))
+    for r in RBOUNDARIES[10:-1]:    # far
         if make_cylinders: fig.add_trace(goCylinder(r, -z_offset*2, z_offset, 18, 2, colors[2], opacity))
         fig.add_trace(goCircle(r, z_offset, 18, colors[2], linewidth))
-    fig.add_trace(goLines((292.5,375), z_offset, 18, colors[2], linewidth))
+    fig.add_trace(goLines((RBOUNDARIES[10],RBOUNDARIES[-2]), z_offset, 18, colors[2], linewidth))
     
 defaultLayout = lambda axislabels: go.Layout(
         title=f"Clusters",
@@ -277,7 +279,8 @@ def graphCylindricalPoints(clusters, labelidx, title="", markersize=4, width=150
     sectors = np.unique(clusters[:,4])
     for sector in sectors:
         points = clusters[clusters[:,4] == sector]
-        name=f"Sec {int(sector)}: {len(points)} pts"
+        ring = points[0,3]  # display ring and sector information
+        name=f"R{int(ring)} S{int(sector)}: {len(points)} pts"
         # convert from cylindrical to cartesian coordinates
         X = points[:,0]*np.cos(points[:,1])
         Y = points[:,0]*np.sin(points[:,1])
@@ -285,7 +288,7 @@ def graphCylindricalPoints(clusters, labelidx, title="", markersize=4, width=150
         possible_label_idxs = [3,4,5]
         #possible_label_idxs.remove(labelidx)
         colors = points[:,labelidx]
-        name += ", avg: %.3f" % np.mean(colors)
+        name += ", avg: %.3f" % np.mean(colors)  # and average subdetId
         ids = []
         for pt in points:
             id_txt = []
@@ -308,7 +311,7 @@ def plotRTheta(coords, label_idx, title, radius_bounds=(0,0), rticks=[], showplo
     PLOT_SIZE = (10,8)
     numradialticks = 8  # not including largest radius
     numthetaticks = 18
-    rticks=[5,10,17,35,40,45,80,134,250,292.5,375,450]
+    rticks=RBOUNDARIES
     
     rmin = 0
     if radius_bounds[1]:
@@ -359,7 +362,7 @@ def plotRTheta(coords, label_idx, title, radius_bounds=(0,0), rticks=[], showplo
     ax.set(title=title)
     plt.colorbar(sc)
 
-    pltname = "plot-"+("polar" if polar else "2d")+"_"+"_".join(title.lower().split(' '))+".pdf"
+    pltname = PLOT_DIR+"/plot-"+("polar" if polar else "2d")+"_"+"_".join(title.lower().split(' '))+".pdf"
     fig.savefig(pltname, bbox_inches="tight")
     print("Saved figure to "+pltname)
     if showplot: plt.show()
