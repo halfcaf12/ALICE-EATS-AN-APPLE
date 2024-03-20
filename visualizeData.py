@@ -461,13 +461,5 @@ if __name__ == "__main__":
                         help="width of group for plotting IDs. smallest is 5")
     parser.add_argument("--plot", dest='plot',default=[], nargs="+",
                         help="List of additional plot arguments. 'cylinder' draws boundary cylinders, 'width' and 'height' specify plot dimensions")
-    '''
-    parser.add_argument("--label", dest="label", default="",
-                        help="Label of pkl file (after seed part).") 
-    parser.add_argument("--seeds", dest="seeds", default=[-1], nargs="+",
-                        help="List of target seeds to plot.") 
-    parser.add_argument("--ext", dest="ext", default="png",
-                        help="Image extension (e.g., pdf or png)") 
-    '''
     args = parser.parse_args()
     main(args)

@@ -11,9 +11,14 @@ from typing import Dict
 
 PLOT_SIZE = (12,6)
 
-def train_valid_test(arr: np.ndarray, test_percentage: float, valid_percentage=0.0):
-    """ Return train, valid, test split from an array"""
-    n = arr.shape[0]
+def train_valid_test(arr: np.ndarray | tuple[np.ndarray], test_percentage: float, valid_percentage=0.0):
+    """ Return (train, valid, test) split from an array or tuple of arrays
+     - if tuple array, will return (train1, valid1, test1, train2, ...)"""
+    if not isinstance(arr,tuple):  # generalize to passing in both a single array and a 
+        arr = (arr,)
+    n = arr[0].shape[0]
+    for i in range(1,len(arr)):
+        assert(arr[i].shape[0] == n)
     test_n = int(test_percentage * n)
     valid_n = int(valid_percentage * n)
     train_n = n - test_n - valid_n
@@ -22,12 +27,15 @@ def train_valid_test(arr: np.ndarray, test_percentage: float, valid_percentage=0
         sys.exit()
     indices = np.linspace(0,n,n,dtype=int,endpoint=False)
     np.random.shuffle(indices)
-    shuffle_array = arr[indices]
-    test = shuffle_array[:test_n]
-    valid = shuffle_array[test_n:test_n+valid_n]
-    train = shuffle_array[test_n+valid_n:]
+    tvt_tuples = tuple()
+    for a in arr:
+        shuffle_array = a[indices]
+        train = shuffle_array[:train_n]
+        valid = shuffle_array[train_n:train_n+valid_n]
+        test  = shuffle_array[train_n+valid_n:]
+        tvt_tuples = tvt_tuples + (train, valid, test)
     print("train:",train_n,train.shape,"valid",valid_n,valid.shape,"test",test_n,test.shape)
-    return (train, valid, test)
+    return tvt_tuples
 
 def within_eps(act: np.ndarray, pred: np.ndarray, eps: float) -> np.ndarray:
     return np.logical_and(pred <= (act + eps), pred >= (act - eps))
@@ -177,8 +185,7 @@ def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[]
       - "l" is recommended for fitting event-dependent fields like fSubdetId
     - makePlotly: whether to graph labels in plotly(recommend). will make pyplot regardless
     - sectors_with_Z: add Z definition to the middle things for plotly toggle-ability
-    - save_model_name: name to save XGBoost created model (might be too big tho?)
-
+    - save_model_name: name to save XGBoost created model
     '''
     if fieldidx < 0 or fieldidx > 2: fieldidx = 0
     fIds = ("Ring","Sector","fSubdetId")
@@ -197,7 +204,7 @@ def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[]
     
     def XfromCoords(coords, x_indexes):
         return np.stack((coords[:,xidx] for xidx in x_indexes),axis=-1)
-
+    
     X = XfromCoords(coords, xidxs)
     Y = coords[:,idx].astype(int)
 
@@ -402,7 +409,7 @@ if __name__ == '__main__':
     
 # ---------------------
 # XGBOOST training metrics
-    
+
  # ---- MAIN AT LINE 400 ---
 def quantile_loss(args: argparse.Namespace, X, Y) -> None:
     """Train a quantile regression model."""
@@ -411,7 +418,7 @@ def quantile_loss(args: argparse.Namespace, X, Y) -> None:
     alpha = np.array([0.05, 0.5, 0.95])
     evals_result: Dict[str, Dict] = {}
 
-    X_train, X_test, y_train, y_test = train_test_split(X, Y, random_state=random_state)
+    X_train, X_valid, X_test, Y_train, Y_valid, Y_test= train_valid_test((X, Y), 0.125, 0.125)
     # We will be using the `hist` tree method, quantile DMatrix can be used to preserve
     # memory.
     # Do not use the `exact` tree method for quantile regression, otherwise the
@@ -419,7 +426,7 @@ def quantile_loss(args: argparse.Namespace, X, Y) -> None:
     XY = xgb.QuantileDMatrix(X, Y)
     # use Xy as a reference
     XY_train = xgb.QuantileDMatrix(X_train, Y_train, ref=XY)
-    XY_test = xgb.QuantileDMatrix(X_test, y_test, ref=XY)
+    XY_test = xgb.QuantileDMatrix(X_test, Y_test, ref=XY)
 
     booster = xgb.train(
         {
