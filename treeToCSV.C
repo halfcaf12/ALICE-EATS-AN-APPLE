@@ -27,6 +27,9 @@ I have changed this to work off of the github as is, using
 dir/roots/ to get the root files 
 storeCSV assumes existence of csvs/Clusters and csvs/RecTracks 
 storeTree assumes existence of roots/Clusters and roots/RecTracks
+
+scroll to bottom and find makeRoots, makeCSVS, and printLeaves flags
+that you should change, I wasn't about to do a whole *args parsing
 */
 // const char* DIRNAME = "/Users/benkroul/Documents/CS/final_229/";
 char DIRNAME[100];
@@ -255,7 +258,6 @@ void treeToCSV() {
          TDirectoryFile* f = (TDirectoryFile *)events->At(i);
          const char* fname = f->GetName();
          TDirectoryFile* event = (TDirectoryFile*)fd->Get(fname);
-
          if (printLeaves) {
             doPrintLeaves("Clusters", event, i);
             doPrintLeaves("RecTracks", event, i);
