@@ -316,7 +316,7 @@ def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[]
         fig, axs = plt.subplots(2,1,figsize=(12,8))
         xgb.plot_importance(bst, ax=axs[0])
         xgb.plot_tree(bst, num_trees=2, ax=axs[1])
-        fig.savefig("xgb_fig.pdf")
+        fig.savefig("./xgboost_plots/xgb_fig.pdf")
         if showPyplots: fig.show()
 
     # ---- PLOT RESULTS! ---- #

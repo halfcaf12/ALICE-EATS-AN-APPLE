@@ -1,0 +1,10 @@
+name: alice_eats_an_apple
+dependencies:
+  - pip
+  - python=3.9
+  - tqdm
+  - numpy
+  - matplotlib
+  - plotly
+  - cycler
+  - pandas
