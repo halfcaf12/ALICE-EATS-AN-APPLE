@@ -96,7 +96,7 @@ def eighteenOGonLabels(R: np.ndarray, T: np.ndarray, Z=False) -> tuple[list[int]
 # ---- FORMAT: cylindrical coordinates, sector, ring, fSubdetId ---- #
 @timeIt
 def getCoords(eventidxs=[], maxnpts= 10000, sectors_with_Z = False) -> tuple[np.ndarray, int]:
-    clusters = loadFromNPZ("../clusters")
+    clusters = loadFromNPZ("../../clusters")
     #events = np.unique(clusters["event"])
     points, events_used = getFieldPoints(clusters, "event", eventidxs, maxnpts, printinfo=0)
     # ----- WE GOING CYLINDRICAL IN THIS BIH ------ #
@@ -608,11 +608,11 @@ if __name__ == '__main__':
         description='Arguments classifying XGBoost on cluster data')
     parser.add_argument('--np', dest="np", default=True, 
                         action="store_false", help='turn off plotly attempt')
-    parser.add_argument('--pyplot', '--mpl', '--plot', dest="nps", default=False, 
-                        action="store_false", help='turn off matplotlib showing plots')
-    parser.add_argument('--field', "--f", dest="f", type=int, default=0, 
+    parser.add_argument('--plt', '--mpl', '--plot', dest="nps", default=False, 
+                        action="store_true", help='turn on matplotlib showing plots')
+    parser.add_argument('--field', "--f", dest="f", type=int, default=2, 
                         help='index of field to fit in (sector#, ring#, id#)')
-    parser.add_argument('--custom', dest="doCustom", default=False, action="store_true", 
+    parser.add_argument('--custom', dest="custom", default=False, action="store_true", 
                         help='additionally test custom objective function on metrics')
     parser.add_argument('--quantile', '--quant', dest="quantile", default=False, action="store_true", 
                         help='additionally test custom objective function on metrics')
@@ -620,8 +620,10 @@ if __name__ == '__main__':
                         help='dimensions of x to use out of (radius, theta, z) if 4,5,6 will index into a fields instead')
     parser.add_argument('--tvt', "--split", dest="split", type=float, default=0.125, 
                         help='percentage to partition testing and validation sets.')
-    parser.add_argument('--ev', "--events", dest="evs", default=[], nargs = "+",
-                        help='event indices to use (0-317, in increasing number of events). specs of "l3" and "s2" will add 3rd largest w.r.t maxnevs, 2nd smallest event resp.')
+    parser.add_argument('--ev', "--events", dest="evs", default=["l"], nargs = "+",
+                        help='event indices to use (0-317, in increasing number of events). \n\
+                            - specs of "l3" and "s2" will add 3rd largest w.r.t maxnevs, 2nd smallest event resp.\n\
+                            - spec "f" will fill remainder w events up to maxnevs')
     parser.add_argument('--maxn', "--maxnevs", "--maxevs", dest="maxnevs", type=int, default=50000,
                         help='maximum number of events to pull')
     parser.add_argument('--save', "--savename", "--name", dest="sname", default="",
@@ -631,7 +633,7 @@ if __name__ == '__main__':
     parser.add_argument('--info','--evinfo', dest="info", default=False, action="store_true", 
                         help="from largest to smallest, print info about number of clusters in events in form (idx, event, size)")
     parser.add_argument('--polar','--polar', dest="polar", default=False, action="store_true", 
-                        help="plot results in R, theta in polar coordinates instead of transforming back to cartesian")
+                        help="pyplot flag to plot results in R, theta in polar coordinates instead of transforming back to cartesian")
     parser.add_argument('--eps', dest="eps", default=5, type=int, 
                         help="when plotting differences, max absolute difference to include in plot")
     parser.add_argument('--nr','--nrounds','--numr','--numrounds', dest="nrounds", default=100, type=int, 
