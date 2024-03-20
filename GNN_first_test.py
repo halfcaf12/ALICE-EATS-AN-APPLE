@@ -2,7 +2,7 @@ import sys
 import keras
 import tensorflow as tf
 import tensorflow_gnn as tfgnn
-from visualizeData import loadFromNPZ
+from boosting.visualizeData import loadFromNPZ
 import collections
 import functools
 import itertools
