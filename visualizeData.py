@@ -13,7 +13,7 @@ import argparse
 from fractions import Fraction
 
 # ---- CONSTANTS ---- #
-PLOT_DIR = "./plots"
+PLOT_DIR = "./xgboost_plots"
 RBOUNDARIES = [0,5,10,17,35,40,45,84,134,250,292.5,373.5,500]
 # IBM's colorblind-friendly colors
 #           |   Red  |   Blue  |  Purple |  Orange | Yellow  |   Green |   Teal  | Grey
