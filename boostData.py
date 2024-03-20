@@ -11,6 +11,8 @@ from typing import Dict
 
 PLOT_SIZE = (12,6)
 
+# ---- MAIN AT LINE 400 ---
+# ------- HELPER FUNCTIONS ------- #
 def train_valid_test(arr: np.ndarray | tuple[np.ndarray], test_percentage: float, valid_percentage=0.0):
     """ Return (train, valid, test) split from an array or tuple of arrays
      - if tuple array, will return (train1, valid1, test1, train2, ...)"""
@@ -90,14 +92,7 @@ def eighteenOGonLabels(R: np.ndarray, T: np.ndarray, Z=False) -> tuple[list[int]
                 if sectors[mask].size: slabel += 1
     return rings, sectors
 
-# ---- GET AND FORMAT DATA ---- #
-random_state = 19
-np.random.seed(random_state)
-# maybe later filter by events??
-
-# events ordered by size: index of event, event, number of clusters
-events_ordered = loadFromNPZ("events_increasing_size")
-
+# ---- MAIN AT LINE 400 ---
 # ---- FORMAT: cylindrical coordinates, sector, ring, fSubdetId ---- #
 @timeIt
 def getCoords(eventidxs=[], maxnpts= 10000, sectors_with_Z = False) -> tuple[np.ndarray, int]:
@@ -121,6 +116,14 @@ def getCoords(eventidxs=[], maxnpts= 10000, sectors_with_Z = False) -> tuple[np.
     print("coords have shape",coords.shape,"and of type",coords.dtype)
     print("\tusing events",', '.join([str(ev) for ev in events_used]))
     return coords, events_used
+
+# ---- GET AND FORMAT DATA (globally) ---- #
+random_state = 19
+np.random.seed(random_state)
+# maybe later filter by events??
+
+# events ordered by size: index of event, event, number of clusters
+events_ordered = loadFromNPZ("events_increasing_size")
 
 def getEventsToMake(ev_idxs: list[str], maxnpts: int) -> tuple[list[str], int]:
     """ use events_ordered (loaded globally) to parse ev_idxs to within maxnpts.
@@ -171,9 +174,229 @@ def getEventsToMake(ev_idxs: list[str], maxnpts: int) -> tuple[list[str], int]:
                 numused += ordered_ev[2]
     return ev_idxs_to_make, numused
 
+def XfromCoords(coords, x_indexes):
+    return np.stack((coords[:,xidx] for xidx in x_indexes),axis=-1)
+
+# ---- MAIN AT LINE 400 ---
+# ---- XGBOOST custom training metrics --------- #
+def quantile_loss(args: argparse.Namespace, X, Y) -> None:
+    """Train a quantile regression model."""
+    # Train on 0.05 and 0.95 quantiles. The model is similar to multi-class and
+    # multi-target models.
+    alpha = np.array([0.05, 0.5, 0.95])
+    evals_result: Dict[str, Dict] = {}
+
+    X_train, X_valid, X_test, Y_train, Y_valid, Y_test= train_valid_test((X, Y), 0.125, 0.125)
+    # We will be using the `hist` tree method, quantile DMatrix can be used to preserve
+    # memory.
+    # Do not use the `exact` tree method for quantile regression, otherwise the
+    # performance might drop.
+    XY = xgb.QuantileDMatrix(X, Y)
+    # use Xy as a reference
+    XY_train = xgb.QuantileDMatrix(X_train, Y_train, ref=XY)
+    XY_valid = xgb.QuantileDMatrix(X_valid, Y_valid, ref=XY)
+    XY_test = xgb.QuantileDMatrix(X_test, Y_test, ref=XY)
+
+    booster = xgb.train(
+        {
+            # Use the quantile objective function.
+            "objective": "reg:quantileerror",
+            "tree_method": "hist",
+            "quantile_alpha": alpha, # try not to overfit.
+            "learning_rate": 0.04,
+            "max_depth": 5,
+        },
+        XY_train,
+        num_boost_round=32,
+        early_stopping_rounds=2,
+        # The evaluation result is a weighted average across multiple quantiles.
+        evals=[(XY_train, "Train"), (XY_valid, "Valid")],
+        evals_result=evals_result,
+    )
+    scores = booster.inplace_predict(X_test)
+    # dim 1 is the quantiles
+    assert scores.shape[0] == X_test.shape[0]
+    assert scores.shape[1] == alpha.shape[0]
+
+    y_lower = scores[:, 0]  # alpha=0.05
+    y_med   = scores[:, 1]  # alpha=0.5, median
+    y_upper = scores[:, 2]  # alpha=0.95
+
+    # Train a mse model for comparison
+    booster = xgb.train(
+        {
+            "objective": "reg:squarederror",
+            "tree_method": "hist",
+            # Let's try not to overfit.
+            "learning_rate": 0.04,
+            "max_depth": 5,
+        },
+        XY_train,
+        num_boost_round=32,
+        early_stopping_rounds=2,
+        evals=[(XY_train, "Train"), (XY_valid, "Test")],
+        evals_result=evals_result,
+    )
+    Y_pred = booster.inplace_predict(XY_test)
+
+    if args.plot:
+        fig = plt.figure(figsize=(10, 10))
+        plt.plot(X_test, Y_test, "b.", markersize=10, label="Test observations")
+        plt.plot(X_test, y_med, "r-", label="Predicted median")
+        plt.plot(X_test, Y_pred, "m-", label="Predicted mean")
+        plt.plot(X_test, y_upper, "k-")
+        plt.plot(X_test, y_lower, "k-")
+        plt.fill_between(
+            X_test.reshape(-1), y_lower, y_upper, alpha=0.4, label="Predicted 90% interval"
+        )
+        plt.xlabel("$x$")
+        plt.ylabel("$f(x)$")
+        plt.ylim(-10, 25)
+        plt.legend(loc="upper left")
+        plt.show()
+
+# custom multi-class objective function
+def softmax(x):
+    '''Softmax function with x as input vector.'''
+    e = np.exp(x)
+    return e / np.sum(e)
+
+def softprob_obj(predt: np.ndarray, data: xgb.DMatrix):
+    '''Loss function.  Computing the gradient and approximated hessian (diagonal).
+    Reimplements the `multi:softprob` inside XGBoost.
+    '''
+    kRows = data.num_row(); kCols = data.num_col()
+    labels = data.get_label()
+    kClasses = np.unique(labels).size
+    if data.get_weight().size == 0:
+        # Use 1 as weight if we don't have custom weight.
+        weights = np.ones((kRows, 1), dtype=float)
+    else:
+        weights = data.get_weight()
+    # The prediction is of shape (rows, classes), each element in a row
+    # represents a raw prediction (leaf weight, hasn't gone through softmax
+    # yet).  In XGBoost 1.0.0, the prediction is transformed by a softmax
+    # function, fixed in later versions.
+    assert predt.shape == (kRows, kClasses)
+
+    grad = np.zeros((kRows, kClasses), dtype=float)
+    hess = np.zeros((kRows, kClasses), dtype=float)
+
+    eps = 1e-6
+
+    # compute the gradient and hessian, slow iterations in Python, only
+    # suitable for demo.  Also the one in native XGBoost core is more robust to
+    # numeric overflow as we don't do anything to mitigate the `exp` in
+    # `softmax` here.
+    for r in range(predt.shape[0]):
+        target = labels[r]
+        p = softmax(predt[r, :])
+        for c in range(predt.shape[1]):
+            assert target >= 0 or target <= kClasses
+            g = p[c] - 1.0 if c == target else p[c]
+            g = g * weights[r]
+            h = max((2.0 * p[c] * (1.0 - p[c]) * weights[r]).item(), eps)
+            grad[r, c] = g
+            hess[r, c] = h
+
+    # Right now (XGBoost 1.0.0), reshaping is necessary
+    grad = grad.reshape((kRows * kClasses, 1))
+    hess = hess.reshape((kRows * kClasses, 1))
+    return grad, hess
+
+def predict(booster: xgb.Booster, X):
+    '''A customized prediction function that converts raw prediction to
+    target class.
+
+    '''
+    # Output margin means we want to obtain the raw prediction obtained from
+    # tree leaf weight.
+    predt = booster.predict(X, output_margin=True)
+    out = np.zeros(X.shape[0])
+    for r in range(predt.shape[0]):
+        # the class with maximum prob (not strictly prob as it haven't gone
+        # through softmax yet so it doesn't sum to 1, but result is the same
+        # for argmax).
+        i = np.argmax(predt[r])
+        out[r] = i
+    return out
+
+def merror(predt: np.ndarray, dtrain: xgb.DMatrix):
+    y = dtrain.get_label()
+    # Like custom objective, the predt is untransformed leaf weight when custom objective
+    # is provided.
+
+    # With the use of `custom_metric` parameter in train function, custom metric receives
+    # raw input only when custom objective is also being used.  Otherwise custom metric
+    # will receive transformed prediction.
+    kRows = dtrain.num_row(); kClasses = np.unique(predt).size
+    assert predt.shape == (kRows, kClasses)
+    out = np.zeros(kRows)
+    for r in range(predt.shape[0]):
+        i = np.argmax(predt[r])
+        out[r] = i
+
+    assert y.shape == out.shape
+
+    errors = np.zeros(kRows)
+    errors[y != out] = 1.0
+    return 'PyMError', np.sum(errors) / kRows
+
+def plot_history(custom_results, native_results, kRounds):
+    fig, axs = plt.subplots(2, 1)
+    ax0 = axs[0]
+    ax1 = axs[1]
+
+    pymerror = custom_results['train']['PyMError']
+    merror = native_results['train']['merror']
+
+    x = np.arange(0, kRounds, 1)
+    ax0.plot(x, pymerror, label='Custom objective')
+    ax0.legend()
+    ax1.plot(x, merror, label='multi:softmax')
+    ax1.legend()
+
+    plt.show()
+
+def custom_objective(M: xgb.DMatrix, M_train, M_valid, M_test, kClasses, kRounds=100, showPyplots=True):
+    custom_results = {}
+    # Use our custom objective function
+    booster_custom = xgb.train({'num_class': kClasses,
+                                'disable_default_eval_metric': True},
+                               M_train,
+                               num_boost_round=kRounds,
+                               obj=softprob_obj,
+                               custom_metric=merror,
+                               evals_result=custom_results,
+                               evals=[(M_train, 'train'),(M_valid,'valid')])
+
+    predt_custom = predict(booster_custom, M_test)
+
+    native_results = {}
+    # Use the same objective function defined in XGBoost.
+    booster_native = xgb.train({'num_class': kClasses,
+                                "objective": "multi:softmax",
+                                'eval_metric': 'merror'},
+                               M_train,
+                               num_boost_round=kRounds,
+                               evals_result=native_results,
+                               evals=[(M_train, 'train'),(M_valid,'valid')])
+    predt_native = booster_native.predict(M_test)
+
+    # We are reimplementing the loss function in XGBoost, so it should
+    # be the same for normal cases.
+    assert np.all(predt_custom == predt_native)
+    np.testing.assert_allclose(custom_results['train']['PyMError'],
+                               native_results['train']['merror'])
+
+    if showPyplots:
+        plot_history(custom_results, native_results, kRounds)
+
+
+
 def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[], maxnpts=10000, 
                   save_model_name="", makePlotly=True, makeLinear=False, showPyplots=False, plotPolar=True,
-                  sectors_with_Z=True, epsilon=5):
+                  sectors_with_Z=True, epsilon=5, doCustom=False):
     '''
     - fieldidx index to classify: 0: ring, 1:sector, 2:fSubdetId
     - xidxs gives indexes of coords to use, 0:R, 1:Theta, 2:Z, 3:ring, 4:sector, 5:fSubdetId
@@ -202,9 +425,6 @@ def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[]
     if 3 not in xidxs:  # graph R, Theta
         plotRTheta(coords, idx, "Initial points", radius_bounds=(0,0), showplot=showPyplots, polar=plotPolar)
     
-    def XfromCoords(coords, x_indexes):
-        return np.stack((coords[:,xidx] for xidx in x_indexes),axis=-1)
-    
     X = XfromCoords(coords, xidxs)
     Y = coords[:,idx].astype(int)
 
@@ -228,6 +448,10 @@ def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[]
     M = xgb.DMatrix(X, Y)
     M_train = xgb.DMatrix(X_train, Y_train)
     M_valid = xgb.DMatrix(X_valid, Y_valid)
+    M_test  = xgb.DMatrix(X_test,  Y_test)
+
+    kRounds = 100  # number of rounds to make leaves??? maybe??
+    maxDepth = kClasses
 
     # -------- PPOTENTIAL TREE PARAMETERS
     param_linear = {"objective": "multi:softmax", 
@@ -239,8 +463,6 @@ def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[]
                     #"feature_selector": "thrifty",
                     "num_class": kClasses
                     }
-    kRounds = 100  # number of rounds to make leaves??? maybe??
-    maxDepth = kClasses
 
     param_tree = {
         "max_depth": maxDepth,
@@ -272,6 +494,12 @@ def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[]
     # verbosity 0 (silent), 1 (warning), 2 (info), and 3 (debug)
     # use_rmm uses RAPIDS Memory Manager (RMM) to allocate GPU memory
     xgb.config_context(verbosity=2,use_rmm=False)
+
+    # -------- RUN THE MODELS ------ #
+    if doCustom:
+        print("making custom xgb model with data...")
+        custom_objective(M, M_train, M_valid, M_test, kClasses, kRounds, showPyplots)
+    
     watchlist = [(M_train, "train"),(M_valid, "valid")]
     # early-stopping rounds determines when validation set has stopped improving
     @timeIt
@@ -285,7 +513,7 @@ def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[]
     test_pred  = bst.predict(xgb.DMatrix(X_test),  iteration_range=(0, bst.best_iteration + 1))
     train_pred = bst.predict(xgb.DMatrix(X_train), iteration_range=(0, bst.best_iteration + 1))
     valid_pred = bst.predict(xgb.DMatrix(X_valid), iteration_range=(0, bst.best_iteration + 1))
-
+    
     print("accuracies:\n- train; ",printAccuracy(Y_train,train_pred,eps),
           "\n- valid; ",printAccuracy(Y_valid,valid_pred,eps),
           "\n- test; ",printAccuracy(Y_test,test_pred,eps))
@@ -369,6 +597,8 @@ if __name__ == '__main__':
                         action="store_false", help='turn off matplotlib showing plots')
     parser.add_argument('--field', "--f", dest="f", type=int, default=0, 
                         help='index of field to fit in (sector#, ring#, id#)')
+    parser.add_argument('--custom', dest="doCustom", default=False, action="store_true", 
+                        help='test custom objective function on metrics only')
     parser.add_argument('--dims', '--idxs', '--xidxs', dest="xdim", default=[0,1,2], nargs='+', 
                         help='dimensions of x to use out of (radius, theta, z) if 4,5,6 will index into a fields instead')
     parser.add_argument('--tvt', "--split", dest="split", type=float, default=0.125, 
@@ -405,232 +635,5 @@ if __name__ == '__main__':
 
     classifyModel(args.f, args.xdim, tvt_split=args.split, ev_idxs=args.evs, maxnpts=args.maxnevs, 
                   save_model_name=args.sname, makePlotly=args.np, makeLinear=args.makelinear, 
-                  showPyplots=args.nps, plotPolar=args.polar, epsilon=args.eps)
+                  showPyplots=args.nps, plotPolar=args.polar, epsilon=args.eps, doCustom=args.custom)
     
-# ---------------------
-# XGBOOST training metrics
-
- # ---- MAIN AT LINE 400 ---
-def quantile_loss(args: argparse.Namespace, X, Y) -> None:
-    """Train a quantile regression model."""
-    # Train on 0.05 and 0.95 quantiles. The model is similar to multi-class and
-    # multi-target models.
-    alpha = np.array([0.05, 0.5, 0.95])
-    evals_result: Dict[str, Dict] = {}
-
-    X_train, X_valid, X_test, Y_train, Y_valid, Y_test= train_valid_test((X, Y), 0.125, 0.125)
-    # We will be using the `hist` tree method, quantile DMatrix can be used to preserve
-    # memory.
-    # Do not use the `exact` tree method for quantile regression, otherwise the
-    # performance might drop.
-    XY = xgb.QuantileDMatrix(X, Y)
-    # use Xy as a reference
-    XY_train = xgb.QuantileDMatrix(X_train, Y_train, ref=XY)
-    XY_test = xgb.QuantileDMatrix(X_test, Y_test, ref=XY)
-
-    booster = xgb.train(
-        {
-            # Use the quantile objective function.
-            "objective": "reg:quantileerror",
-            "tree_method": "hist",
-            "quantile_alpha": alpha,
-            # Let's try not to overfit.
-            "learning_rate": 0.04,
-            "max_depth": 5,
-        },
-        XY,
-        num_boost_round=32,
-        early_stopping_rounds=2,
-        # The evaluation result is a weighted average across multiple quantiles.
-        evals=[(XY, "Train"), (XY_test, "Test")],
-        evals_result=evals_result,
-    )
-    xx = np.atleast_2d(np.linspace(0, 10, 1000)).T
-    scores = booster.inplace_predict(xx)
-    # dim 1 is the quantiles
-    assert scores.shape[0] == xx.shape[0]
-    assert scores.shape[1] == alpha.shape[0]
-
-    y_lower = scores[:, 0]  # alpha=0.05
-    y_med   = scores[:, 1]  # alpha=0.5, median
-    y_upper = scores[:, 2]  # alpha=0.95
-
-    # Train a mse model for comparison
-    booster = xgb.train(
-        {
-            "objective": "reg:squarederror",
-            "tree_method": "hist",
-            # Let's try not to overfit.
-            "learning_rate": 0.04,
-            "max_depth": 5,
-        },
-        XY,
-        num_boost_round=32,
-        early_stopping_rounds=2,
-        evals=[(XY_train, "Train"), (XY_test, "Test")],
-        evals_result=evals_result,
-    )
-    xx = np.atleast_2d(np.linspace(0, 10, 1000)).T
-    y_pred = booster.inplace_predict(xx)
-
-    if args.plot:
-        fig = plt.figure(figsize=(10, 10))
-        plt.plot(xx, f(xx), "g:", linewidth=3, label=r"$f(x) = x\,\sin(x)$")
-        plt.plot(X_test, y_test, "b.", markersize=10, label="Test observations")
-        plt.plot(xx, y_med, "r-", label="Predicted median")
-        plt.plot(xx, y_pred, "m-", label="Predicted mean")
-        plt.plot(xx, y_upper, "k-")
-        plt.plot(xx, y_lower, "k-")
-        plt.fill_between(
-            xx.ravel(), y_lower, y_upper, alpha=0.4, label="Predicted 90% interval"
-        )
-        plt.xlabel("$x$")
-        plt.ylabel("$f(x)$")
-        plt.ylim(-10, 25)
-        plt.legend(loc="upper left")
-        plt.show()
-
-# ---- MAIN AT LINE 400 ---
-# custom multi-class objective function
-def softmax(x):
-    '''Softmax function with x as input vector.'''
-    e = np.exp(x)
-    return e / np.sum(e)
-
-# ---- MAIN AT LINE 400 ---
-def softprob_obj(predt: np.ndarray, data: xgb.DMatrix):
-    '''Loss function.  Computing the gradient and approximated hessian (diagonal).
-    Reimplements the `multi:softprob` inside XGBoost.
-
-    '''
-    labels = data.get_label()
-    if data.get_weight().size == 0:
-        # Use 1 as weight if we don't have custom weight.
-        weights = np.ones((kRows, 1), dtype=float)
-    else:
-        weights = data.get_weight()
-
-    # The prediction is of shape (rows, classes), each element in a row
-    # represents a raw prediction (leaf weight, hasn't gone through softmax
-    # yet).  In XGBoost 1.0.0, the prediction is transformed by a softmax
-    # function, fixed in later versions.
-    assert predt.shape == (kRows, kClasses)
-
-    grad = np.zeros((kRows, kClasses), dtype=float)
-    hess = np.zeros((kRows, kClasses), dtype=float)
-
-    eps = 1e-6
-
-    # compute the gradient and hessian, slow iterations in Python, only
-    # suitable for demo.  Also the one in native XGBoost core is more robust to
-    # numeric overflow as we don't do anything to mitigate the `exp` in
-    # `softmax` here.
-    for r in range(predt.shape[0]):
-        target = labels[r]
-        p = softmax(predt[r, :])
-        for c in range(predt.shape[1]):
-            assert target >= 0 or target <= kClasses
-            g = p[c] - 1.0 if c == target else p[c]
-            g = g * weights[r]
-            h = max((2.0 * p[c] * (1.0 - p[c]) * weights[r]).item(), eps)
-            grad[r, c] = g
-            hess[r, c] = h
-
-    # Right now (XGBoost 1.0.0), reshaping is necessary
-    grad = grad.reshape((kRows * kClasses, 1))
-    hess = hess.reshape((kRows * kClasses, 1))
-    return grad, hess
-
-# ---- MAIN AT LINE 400 ---
-def predict(booster: xgb.Booster, X):
-    '''A customized prediction function that converts raw prediction to
-    target class.
-
-    '''
-    # Output margin means we want to obtain the raw prediction obtained from
-    # tree leaf weight.
-    predt = booster.predict(X, output_margin=True)
-    out = np.zeros(kRows)
-    for r in range(predt.shape[0]):
-        # the class with maximum prob (not strictly prob as it haven't gone
-        # through softmax yet so it doesn't sum to 1, but result is the same
-        # for argmax).
-        i = np.argmax(predt[r])
-        out[r] = i
-    return out
-
-# ---- MAIN AT LINE 400 ---
-def merror(predt: np.ndarray, dtrain: xgb.DMatrix):
-    y = dtrain.get_label()
-    # Like custom objective, the predt is untransformed leaf weight when custom objective
-    # is provided.
-
-    # With the use of `custom_metric` parameter in train function, custom metric receives
-    # raw input only when custom objective is also being used.  Otherwise custom metric
-    # will receive transformed prediction.
-    assert predt.shape == (kRows, kClasses)
-    out = np.zeros(kRows)
-    for r in range(predt.shape[0]):
-        i = np.argmax(predt[r])
-        out[r] = i
-
-    assert y.shape == out.shape
-
-    errors = np.zeros(kRows)
-    errors[y != out] = 1.0
-    return 'PyMError', np.sum(errors) / kRows
-
-# ---- MAIN AT LINE 400 ---
-def plot_history(custom_results, native_results):
-    fig, axs = plt.subplots(2, 1)
-    ax0 = axs[0]
-    ax1 = axs[1]
-
-    pymerror = custom_results['train']['PyMError']
-    merror = native_results['train']['merror']
-
-    x = np.arange(0, kRounds, 1)
-    ax0.plot(x, pymerror, label='Custom objective')
-    ax0.legend()
-    ax1.plot(x, merror, label='multi:softmax')
-    ax1.legend()
-
-    plt.show()
-
-# ---- MAIN AT LINE 400 ---
-def custom_objective(args):
-    custom_results = {}
-    # Use our custom objective function
-    booster_custom = xgb.train({'num_class': kClasses,
-                                'disable_default_eval_metric': True},
-                               M_train,
-                               num_boost_round=kRounds,
-                               obj=softprob_obj,
-                               custom_metric=merror,
-                               evals_result=custom_results,
-                               evals=[(M_train, 'train'),(M_valid,'valid')])
-
-    predt_custom = predict(booster_custom, M_test)
-
-    native_results = {}
-    # Use the same objective function defined in XGBoost.
-    booster_native = xgb.train({'num_class': kClasses,
-                                "objective": "multi:softmax",
-                                'eval_metric': 'merror'},
-                               M_train,
-                               num_boost_round=kRounds,
-                               evals_result=native_results,
-                               evals=[(M_train, 'train'),(M_valid,'valid')])
-    predt_native = booster_native.predict(M_test)
-
-    # We are reimplementing the loss function in XGBoost, so it should
-    # be the same for normal cases.
-    assert np.all(predt_custom == predt_native)
-    np.testing.assert_allclose(custom_results['train']['PyMError'],
-                               native_results['train']['merror'])
-
-    if args.plot != 0:
-        plot_history(custom_results, native_results)
-
-
-# ---- MAIN AT LINE 400 ---

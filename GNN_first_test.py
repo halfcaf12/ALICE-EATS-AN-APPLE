@@ -8,6 +8,7 @@ import functools
 import itertools
 from typing import Callable, Optional, Mapping, Tuple
 
+# getting familiar with tensorflow pipelines
 # store clusters data above directory: change this name for where you 
 # store your clusters data from
 clusters = loadFromNPZ("../clusters")
