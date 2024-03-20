@@ -25,8 +25,8 @@ load data from alice masterclass files at /eos/opendata/alice/masterclass/*.root
 
 I have changed this to work off of the github as is, using 
 dir/roots/ to get the root files 
-storeCSV assumes existence of csvs/Clusters and csvs/RecTracks 
-storeTree assumes existence of roots/Clusters and roots/RecTracks
+storeCSV assumes existence of ./csvs/Clusters and ./csvs/RecTracks 
+storeTree assumes existence of ./roots/Clusters and ./roots/RecTracks
 
 scroll to bottom and find makeRoots, makeCSVS, and printLeaves flags
 that you should change, I wasn't about to do a whole *args parsing

@@ -123,7 +123,7 @@ np.random.seed(random_state)
 # maybe later filter by events??
 
 # events ordered by size: index of event, event, number of clusters
-events_ordered = loadFromNPZ("events_increasing_size")
+events_ordered = loadFromNPZ("../data/events_increasing_size")
 
 def getEventsToMake(ev_idxs: list[str], maxnpts: int) -> tuple[list[str], int]:
     """ use events_ordered (loaded globally) to parse ev_idxs to within maxnpts.
@@ -179,7 +179,7 @@ def XfromCoords(coords, x_indexes):
 
 # ---- MAIN AT LINE 400 ---
 # ---- XGBOOST custom training metrics --------- #
-def quantile_loss(args: argparse.Namespace, X, Y) -> None:
+def quantile_loss(X, Y, kRounds=100, kEarlyRounds=10) -> None:
     """Train a quantile regression model."""
     # Train on 0.05 and 0.95 quantiles. The model is similar to multi-class and
     # multi-target models.
@@ -197,7 +197,9 @@ def quantile_loss(args: argparse.Namespace, X, Y) -> None:
     XY_valid = xgb.QuantileDMatrix(X_valid, Y_valid, ref=XY)
     XY_test = xgb.QuantileDMatrix(X_test, Y_test, ref=XY)
 
-    booster = xgb.train(
+    @timeIt
+    def trainXGBQuantile():
+        return xgb.train(
         {
             # Use the quantile objective function.
             "objective": "reg:quantileerror",
@@ -207,12 +209,13 @@ def quantile_loss(args: argparse.Namespace, X, Y) -> None:
             "max_depth": 5,
         },
         XY_train,
-        num_boost_round=32,
-        early_stopping_rounds=2,
+        num_boost_round=kRounds,
+        early_stopping_rounds=kEarlyRounds,
         # The evaluation result is a weighted average across multiple quantiles.
         evals=[(XY_train, "Train"), (XY_valid, "Valid")],
         evals_result=evals_result,
-    )
+        )
+    booster = trainXGBQuantile()
     scores = booster.inplace_predict(X_test)
     # dim 1 is the quantiles
     assert scores.shape[0] == X_test.shape[0]
@@ -223,20 +226,23 @@ def quantile_loss(args: argparse.Namespace, X, Y) -> None:
     y_upper = scores[:, 2]  # alpha=0.95
 
     # Train a mse model for comparison
-    booster = xgb.train(
-        {
-            "objective": "reg:squarederror",
-            "tree_method": "hist",
-            # Let's try not to overfit.
-            "learning_rate": 0.04,
-            "max_depth": 5,
-        },
-        XY_train,
-        num_boost_round=32,
-        early_stopping_rounds=2,
-        evals=[(XY_train, "Train"), (XY_valid, "Test")],
-        evals_result=evals_result,
-    )
+    @ timeIt
+    def trainXGBBase():
+        return xgb.train(
+            {
+                "objective": "reg:squarederror",
+                "tree_method": "hist",
+                # Let's try not to overfit.
+                "learning_rate": 0.04,
+                "max_depth": 5,
+            },
+            XY_train,
+            num_boost_round=kRounds,
+            early_stopping_rounds=kEarlyRounds,
+            evals=[(XY_train, "Train"), (XY_valid, "Test")],
+            evals_result=evals_result,
+        )
+    booster = trainXGBBase()
     Y_pred = booster.inplace_predict(XY_test)
 
     if args.plot:
@@ -358,29 +364,35 @@ def plot_history(custom_results, native_results, kRounds):
 
     plt.show()
 
-def custom_objective(M: xgb.DMatrix, M_train, M_valid, M_test, kClasses, kRounds=100, showPyplots=True):
+def custom_objective(M: xgb.DMatrix, M_train, M_valid, M_test, kClasses, kRounds=100, kEarlyRounds=10, showPyplots=True):
     custom_results = {}
     # Use our custom objective function
-    booster_custom = xgb.train({'num_class': kClasses,
-                                'disable_default_eval_metric': True},
-                               M_train,
-                               num_boost_round=kRounds,
-                               obj=softprob_obj,
-                               custom_metric=merror,
-                               evals_result=custom_results,
-                               evals=[(M_train, 'train'),(M_valid,'valid')])
-
+    @ timeIt # wrap for timing
+    def trainXGBCustom():
+        return xgb.train({'num_class': kClasses,
+                            'disable_default_eval_metric': True},
+                            M_train,
+                            num_boost_round=kRounds,
+                            obj=softprob_obj,
+                            custom_metric=merror,
+                            evals_result=custom_results,
+                            evals=[(M_train, 'train'),(M_valid,'valid')])
+    booster_custom = trainXGBCustom()
     predt_custom = predict(booster_custom, M_test)
 
     native_results = {}
     # Use the same objective function defined in XGBoost.
-    booster_native = xgb.train({'num_class': kClasses,
-                                "objective": "multi:softmax",
-                                'eval_metric': 'merror'},
-                               M_train,
-                               num_boost_round=kRounds,
-                               evals_result=native_results,
-                               evals=[(M_train, 'train'),(M_valid,'valid')])
+    @ timeIt  # wrap for timing
+    def trainXGBNative():
+        return xgb.train({'num_class': kClasses,
+                            "objective": "multi:softmax",
+                            'eval_metric': 'merror'},
+                            M_train,
+                            num_boost_round=kRounds,
+                            early_stopping_rounds=kEarlyRounds,
+                            evals_result=native_results,
+                            evals=[(M_train, 'train'),(M_valid,'valid')])
+    booster_native = trainXGBNative()
     predt_native = booster_native.predict(M_test)
 
     # We are reimplementing the loss function in XGBoost, so it should
@@ -393,10 +405,10 @@ def custom_objective(M: xgb.DMatrix, M_train, M_valid, M_test, kClasses, kRounds
         plot_history(custom_results, native_results, kRounds)
 
 
-
 def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[], maxnpts=10000, 
                   save_model_name="", makePlotly=True, makeLinear=False, showPyplots=False, plotPolar=True,
-                  sectors_with_Z=True, epsilon=5, doCustom=False):
+                  sectors_with_Z=True, epsilon=5, doCustom=False, doQuantile=False,
+                  kRounds=100, kEarlyRounds=5, maxDepth=None):
     '''
     - fieldidx index to classify: 0: ring, 1:sector, 2:fSubdetId
     - xidxs gives indexes of coords to use, 0:R, 1:Theta, 2:Z, 3:ring, 4:sector, 5:fSubdetId
@@ -450,8 +462,8 @@ def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[]
     M_valid = xgb.DMatrix(X_valid, Y_valid)
     M_test  = xgb.DMatrix(X_test,  Y_test)
 
-    kRounds = 100  # number of rounds to make leaves??? maybe??
-    maxDepth = kClasses
+    if not maxDepth:
+        maxDepth = kClasses
 
     # -------- PPOTENTIAL TREE PARAMETERS
     param_linear = {"objective": "multi:softmax", 
@@ -497,16 +509,19 @@ def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[]
 
     # -------- RUN THE MODELS ------ #
     if doCustom:
-        print("making custom xgb model with data...")
+        print("training custom xgb model with data...")
         custom_objective(M, M_train, M_valid, M_test, kClasses, kRounds, showPyplots)
+    if doQuantile:
+        print("training quantile xgb model")
+        quantile_loss(M, M_train, M_valid, M_test, kClasses, kRounds, showPyplots)
     
     watchlist = [(M_train, "train"),(M_valid, "valid")]
     # early-stopping rounds determines when validation set has stopped improving
     @timeIt
     def trainingXGB(makeLinear):
         if makeLinear:
-            return xgb.train(param_linear, M_train, kRounds, evals=watchlist, early_stopping_rounds=10)
-        return xgb.train(param_tree, M_train, kRounds, evals=watchlist, early_stopping_rounds=10)
+            return xgb.train(param_linear, M_train, kRounds, evals=watchlist, early_stopping_rounds=kEarlyRounds)
+        return xgb.train(param_tree, M_train, kRounds, evals=watchlist, early_stopping_rounds=kEarlyRounds)
     
     bst = trainingXGB(makeLinear)
     all_pred   = bst.predict(xgb.DMatrix(X), iteration_range=(0, bst.best_iteration + 1))
@@ -598,7 +613,9 @@ if __name__ == '__main__':
     parser.add_argument('--field', "--f", dest="f", type=int, default=0, 
                         help='index of field to fit in (sector#, ring#, id#)')
     parser.add_argument('--custom', dest="doCustom", default=False, action="store_true", 
-                        help='test custom objective function on metrics only')
+                        help='additionally test custom objective function on metrics')
+    parser.add_argument('--quantile', '--quant', dest="quantile", default=False, action="store_true", 
+                        help='additionally test custom objective function on metrics')
     parser.add_argument('--dims', '--idxs', '--xidxs', dest="xdim", default=[0,1,2], nargs='+', 
                         help='dimensions of x to use out of (radius, theta, z) if 4,5,6 will index into a fields instead')
     parser.add_argument('--tvt', "--split", dest="split", type=float, default=0.125, 
@@ -609,7 +626,7 @@ if __name__ == '__main__':
                         help='maximum number of events to pull')
     parser.add_argument('--save', "--savename", "--name", dest="sname", default="",
                         help='save created model in a file format with given name')
-    parser.add_argument('--linear', "--l", dest="makelinear", default=False, action="store_true",
+    parser.add_argument("--l", '--linear', dest="makelinear", default=False, action="store_true",
                         help='Make linear booster instead of tree')
     parser.add_argument('--info','--evinfo', dest="info", default=False, action="store_true", 
                         help="from largest to smallest, print info about number of clusters in events in form (idx, event, size)")
@@ -617,9 +634,13 @@ if __name__ == '__main__':
                         help="plot results in R, theta in polar coordinates instead of transforming back to cartesian")
     parser.add_argument('--eps', dest="eps", default=5, type=int, 
                         help="when plotting differences, max absolute difference to include in plot")
+    parser.add_argument('--nr','--nrounds','--numr','--numrounds', dest="nrounds", default=100, type=int, 
+                        help="number of boosting rounds to perform on data")
+    parser.add_argument('--ne', '--nerounds','--nearly', dest="nerounds", default=5, type=int, 
+                        help="number of rounds to stop classifying early after validation error begins to increase")
+    parser.add_argument('--md', '--maxd','--maxdepth', dest="maxdepth", default=0, type=int, 
+                        help="maximum depth of generated trees")
     args = parser.parse_args()
-    #custom_objective(args)
-    #quantile_loss(args)
     if args.info:
         print("navigating event orderings, largest to smallest")
         i = events_ordered.shape[0] - 1
@@ -635,5 +656,7 @@ if __name__ == '__main__':
 
     classifyModel(args.f, args.xdim, tvt_split=args.split, ev_idxs=args.evs, maxnpts=args.maxnevs, 
                   save_model_name=args.sname, makePlotly=args.np, makeLinear=args.makelinear, 
-                  showPyplots=args.nps, plotPolar=args.polar, epsilon=args.eps, doCustom=args.custom)
+                  showPyplots=args.nps, plotPolar=args.polar, epsilon=args.eps, 
+                  doCustom=args.custom, doQuantile=args.quantile,
+                  kRounds=args.nrounds, kEarlyRounds=args.nerounds, maxDepth=args.maxdepth)
     

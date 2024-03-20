@@ -53,10 +53,10 @@ def npzFromCSV(csv_paths, name, dtype):
 def allEventCSVs():
     """ organize clusters into csv files by event """
     curdir = os.getcwd()
-    newdir = curdir+"../eventcsvs"
+    newdir = curdir+"../../eventcsvs"
     if not os.path.isdir(newdir):
         os.mkdir(newdir)
-    clustername = "../clusters.npz"
+    clustername = "../../clusters.npz"
     clusters = np.load(clustername)['arr_0']
     axislabels = ["fV.fX","fV.fY","fV.fZ"]
     events = np.unique(clusters["event"])
@@ -87,7 +87,7 @@ def main(config):
         npzFromCSV(clusters_fnames, "clusters", points_dtype)
     
     if config.makecsvs:
-        print("making csvs in folder ../eventcsvs")
+        print("making csvs in folder ../../eventcsvs")
         allEventCSVs()
 
 if __name__ == "__main__":
