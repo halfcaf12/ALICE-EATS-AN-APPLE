@@ -2,6 +2,8 @@ import torch
 import numpy as np
 import faiss
 
+# Test of faiss sensitivity to utter insanity, consistently causes abort across faiss versions tested (>=1.6.0)
+
 # Ensure we're using GPU for FAISS and PyTorch
 faiss.omp_set_num_threads(1)  # Limit FAISS to 1 thread; adjust as needed
 torch.set_num_threads(1)  # Ensure PyTorch doesn't spawn too many threads

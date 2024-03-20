@@ -14,8 +14,7 @@ except ModuleNotFoundError:
     no_horovod = True
 
 
-# tf.config.optimizer.set_jit(True)
-# tf.debugging.set_log_device_placement(True)
+# I HATE HOROVOD, NEED TO IMPLEMENT HOROVOD-FREE TRAINING TO AVOID FUTURE ENVIRONMENT UNSOLVABILITY
 
 import os
 import sys

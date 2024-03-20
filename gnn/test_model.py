@@ -1,7 +1,8 @@
 import torch
 from gnn_classes import LayerlessEmbedding  # Adjust the import path as necessary
 
-# Updated hparams based on your provided configuration
+# Test fullly implemented embedding class LayerlessEmbedding
+
 hparams = {
     "adjacent": False,
     "clustering": "build_edges",  # Ensure this matches a valid function name in utils_torch
@@ -9,7 +10,7 @@ hparams = {
     "emb_hidden": 512,
     "endcaps": True,
     "factor": 0.3,
-    "in_channels": 12,  # Match this with the dimensionality of your dummy input
+    "in_channels": 12,
     "knn_train": 20,
     "knn_val": 100,
     "layerless": True,
@@ -33,7 +34,6 @@ hparams = {
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Initialize your model with the updated hparams
 model = LayerlessEmbedding(hparams).to(device)
 
 # Create a dummy input tensor matching the expected input dimensions

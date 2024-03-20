@@ -8,6 +8,8 @@ from torch.utils.data import DataLoader, TensorDataset
 import os
 import tempfile
 
+# Test CUDA, PyTorch compatability on weaker instances of embedding classes
+
 class EnhancedEmbeddingModel(pl.LightningModule):
     def __init__(self, in_channels=10, emb_hidden=32, emb_dim=16, nb_layer=3, use_norm=True, activation_fn=nn.Tanh):
         super().__init__()
@@ -46,13 +48,12 @@ class ComprehensiveInferenceCallback(Callback):
     def on_train_end(self, trainer, pl_module):
         print("Comprehensive Inference Started.")
         # Simulate processing multiple batches with more complex logic
-        for i in range(3):  # Simulate 3 batches, replace with your dataset logic
-            dummy_data = torch.randn(5, 10)  # Placeholder for actual data
+        for i in range(3):  # Simulate 3 batches
+            dummy_data = torch.randn(5, 10)
             dummy_data = dummy_data.to(pl_module.device)
             with torch.no_grad():
                 pl_module.eval()
                 inference_output = pl_module(dummy_data)
-            # Placeholder for your data transformation logic
             transformed_output = self.transform_and_process_data(inference_output, pl_module)
             output_path = os.path.join(self.output_dir, f"comprehensive_inference_batch_{i}.pt")
             torch.save(transformed_output, output_path)
@@ -60,8 +61,6 @@ class ComprehensiveInferenceCallback(Callback):
         print("Comprehensive Inference Completed.")
 
     def transform_and_process_data(self, data, pl_module):
-        # Placeholder for your transform and process logic, replace with your actual implementation
-        # For now, just return the data unchanged
         return data
 
 
@@ -72,8 +71,6 @@ y = torch.randn(100, 16)  # 100 samples, target embeddings of dim 16
 dataset = TensorDataset(x, y)
 train_loader = DataLoader(dataset, batch_size=10)
 
-# Assume `train_loader` is already defined with your actual data
-
 model = EnhancedEmbeddingModel()
 callback = ComprehensiveInferenceCallback()
 
@@ -81,7 +78,7 @@ trainer = Trainer(
     max_epochs=2,
     callbacks=[callback],
     gpus=1 if torch.cuda.is_available() else 0,
-    limit_train_batches=10  # Or adjust according to your needs
+    limit_train_batches=10 
 )
 
 trainer.fit(model, train_loader)

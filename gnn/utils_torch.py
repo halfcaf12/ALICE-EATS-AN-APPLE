@@ -6,6 +6,8 @@ import numpy as np
 
 from torch_cluster import radius_graph
 
+# Found utils_torch.py across many different repos associated with several disparate literatures on training GNNs with PyTorch
+
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def graph_intersection(pred_graph, truth_graph):
