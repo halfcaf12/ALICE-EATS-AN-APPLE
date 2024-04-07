@@ -8,8 +8,8 @@ import argparse
 # -------- CONTROL DA DAMN ISH ----------- #
 def getDtype(filename):
     with open(filename, "r") as f:
-        labels = f.readline().strip().split(';')
-        types = []
+        labels = f.readline().strip().split(';')  # first row of csv is headers
+        types  = []
         firstColumn = True
         for column in f.readline().strip().split(';'):
             if firstColumn:
