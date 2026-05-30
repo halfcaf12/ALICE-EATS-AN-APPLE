@@ -408,7 +408,7 @@ def custom_objective(M: xgb.DMatrix, M_train, M_valid, M_test, kClasses, kRounds
 def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[], maxnpts=10000, 
                   save_model_name="", makePlotly=True, makeLinear=False, showPyplots=False, plotPolar=True,
                   sectors_with_Z=True, epsilon=5, doCustom=False, doQuantile=False,
-                  kRounds=100, kEarlyRounds=5, maxDepth=None):
+                  kRounds=100, kEarlyRounds=5, maxDepth=None,markersize=6):
     '''
     - fieldidx index to classify: 0: ring, 1:sector, 2:fSubdetId
     - xidxs gives indexes of coords to use, 0:R, 1:Theta, 2:Z, 3:ring, 4:sector, 5:fSubdetId
@@ -433,10 +433,11 @@ def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[]
     coords, events_used = getCoords(ev_idxs_to_make, maxnpts, sectors_with_Z)  # coords: float array, events_used: int list
     eventnames = ', '.join([str(ev) for ev in events_used])
     linearstring = ("(Linear) " if makeLinear else "")
-    if makePlotly: graphCylindricalPoints(coords, idx, title="All "+str(coords.shape[0])+" Points: "+eventnames, markersize=6)
+    if makePlotly: graphCylindricalPoints(coords, idx, title="All "+str(coords.shape[0])+" Points: "+eventnames, 
+                                          markersize=markersize,width=2000,height=2000)
     if 3 not in xidxs:  # graph R, Theta
         plotRTheta(coords, idx, "Initial points", radius_bounds=(0,0), showplot=showPyplots, polar=plotPolar)
-    
+    sys.exit()
     X = XfromCoords(coords, xidxs)
     Y = coords[:,idx].astype(int)
 
@@ -577,10 +578,10 @@ def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[]
     if makePlotly:
         print(f"plotly-ing good diffs... {good_all.shape[0]}")
         tit = linearstring+"Difference Within ±%.2f: %dpts, evs %s" % (eps,good_all.shape[0],eventnames)
-        graphCylindricalPoints(good_all, idx, markersize=6, title=tit)
+        graphCylindricalPoints(good_all, idx, markersize=markersize, title=tit)
         print(f"plotly-ing bad diffs... {bad_all.shape[0]}")
         tit = linearstring+"Difference Outside ±%.2f: %dpts, evs %s" % (eps,bad_all.shape[0],eventnames)
-        graphCylindricalPoints(bad_all, idx, markersize=6, title=tit)
+        graphCylindricalPoints(bad_all, idx, markersize=markersize, title=tit)
     plotRTheta(good_all, idx, fId+" Diffs Within "+str(eps), radius_bounds=(0,0), showplot=showPyplots, polar=plotPolar)
     plotRTheta(bad_all, idx, fId+" Diffs Outside "+str(eps), radius_bounds=(0,0), showplot=showPyplots, polar=plotPolar)
     if plotTestDetail:
@@ -598,10 +599,10 @@ def classifyModel(fieldidx: 0|1|2, xidxs: list[int], tvt_split=0.125, ev_idxs=[]
         if makePlotly:
             print(f"plotly-ing good test diffs... {good_test.shape[0]}")
             tit = linearstring+"Test Difference Within ±%.2f: %dpts, evs %s" % (eps,good_test.shape[0],eventnames)
-            graphCylindricalPoints(good_test, idx, markersize=6, title=tit)
+            graphCylindricalPoints(good_test, idx, markersize=markersize, title=tit)
             print(f"plotly-ing bad test diffs... {bad_test.shape[0]}")
             tit = linearstring+"Test Difference Outside ±%.2f: %dpts, evs %s" % (eps,bad_test.shape[0],eventnames)
-            graphCylindricalPoints(bad_test, idx, markersize=6, title=tit)
+            graphCylindricalPoints(bad_test, idx, markersize=markersize, title=tit)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
@@ -659,6 +660,6 @@ if __name__ == '__main__':
     classifyModel(args.f, args.xdim, tvt_split=args.split, ev_idxs=args.evs, maxnpts=args.maxnevs, 
                   save_model_name=args.sname, makePlotly=args.np, makeLinear=args.makelinear, 
                   showPyplots=args.nps, plotPolar=args.polar, epsilon=args.eps, 
-                  doCustom=args.custom, doQuantile=args.quantile,
+                  doCustom=args.custom, doQuantile=args.quantile,sectors_with_Z=False,markersize=3,
                   kRounds=args.nrounds, kEarlyRounds=args.nerounds, maxDepth=args.maxdepth)
     
